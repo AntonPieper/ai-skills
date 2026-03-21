@@ -13,7 +13,7 @@ description: Cross-platform Android workflow for fresh clones, Gradle build and 
 
 ## Entry Point
 
-The Python helper has built-in help for commands and flags:
+The authoritative, low-token way to discover commands and flags is the helper's built-in help:
 
 ```bash
 python /path/to/android-development/scripts/android_tooling.py --help
