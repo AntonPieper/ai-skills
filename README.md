@@ -34,19 +34,36 @@ npx skills add /absolute/path/to/android-development -a github-copilot -y
 
 ## Copilot CLI note
 
-If you test the skill with non-interactive `copilot -p`, preapprove permissions for shell and path access.
+Skills do not declare runtime permissions themselves. Tool and path approvals are controlled by the agent runtime.
+
+For helper-only, non-interactive `copilot -p` runs, prefer a project install and narrow Python shell approval instead of `--allow-all`:
 
 ```bash
-copilot -p "Use the android-development skill ..." --allow-all
+cd /path/to/repo
+npx skills add /absolute/path/to/android-development -a github-copilot -y
+copilot -p "Use the android-development skill ..." \
+  --allow-tool='shell(python:*)' \
+  --allow-tool='shell(python3:*)'
 ```
 
-The narrower equivalent is:
+On Windows, also allow `py` if needed:
+
+```powershell
+copilot -p "Use the android-development skill ..." --allow-tool='shell(py:*)'
+```
+
+For global installs, add the installed skills directory if the runtime restricts path access:
 
 ```bash
-copilot -p "Use the android-development skill ..." --allow-all-tools --allow-all-paths
+copilot -p "Use the android-development skill ..." \
+  --allow-tool='shell(python:*)' \
+  --allow-tool='shell(python3:*)' \
+  --add-dir ~/.agents/skills
 ```
 
-Without those flags, Copilot CLI can deny helper execution in non-interactive mode because it cannot pause to request approval.
+If you want Copilot CLI to run direct repo shell commands beyond the helper, use a trusted project directory and widen approvals deliberately, for example `--allow-tool='shell'`.
+
+Without preapproved shell access, non-interactive Copilot CLI runs can deny helper execution because they cannot pause to ask for permission.
 
 ## Helper usage
 

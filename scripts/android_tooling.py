@@ -44,7 +44,7 @@ class ToolingContext:
 
 @dataclass
 class BuildMetadata:
-	java_major: int = 17
+	java_major: int | None = None
 	compile_sdk: int | None = None
 
 
@@ -262,18 +262,58 @@ def candidate_java_homes(required_major: int) -> list[pathlib.Path]:
 	return ordered
 
 
-def resolve_java_home(required_major: int) -> pathlib.Path | None:
+def resolve_java_home(required_major: int, max_major: int | None = None) -> pathlib.Path | None:
 	exact: list[pathlib.Path] = []
 	newer: list[pathlib.Path] = []
 	for home in candidate_java_homes(required_major):
 		major = java_major_from_home(home)
 		if major is None:
 			continue
+		if max_major is not None and major > max_major:
+			continue
 		if major == required_major:
 			exact.append(home)
 		elif major > required_major:
 			newer.append(home)
 	return (exact or newer or [None])[0]
+
+
+def parse_gradle_version(version: str | None) -> tuple[int, ...] | None:
+	if not version:
+		return None
+	parts = re.findall(r"\d+", version)
+	return tuple(int(part) for part in parts) if parts else None
+
+
+def gradle_supported_java_max(version: str | None) -> int | None:
+	parsed = parse_gradle_version(version)
+	if not parsed:
+		return None
+	compatibility = [
+		((9, 4), 26),
+		((9, 1), 25),
+		((8, 14), 24),
+		((8, 10), 23),
+		((8, 8), 22),
+		((8, 5), 21),
+		((8, 3), 20),
+		((7, 6), 19),
+		((7, 5), 18),
+		((7, 3), 17),
+		((7, 0), 16),
+		((6, 7), 15),
+		((6, 3), 14),
+		((6, 0), 13),
+		((5, 4), 12),
+		((5, 0), 11),
+		((4, 7), 10),
+		((4, 3), 9),
+		((2, 0), 8),
+	]
+	for minimum, java_max in compatibility:
+		if parsed >= minimum:
+			return java_max
+	return None
 
 
 def parse_build_metadata(repo_root: pathlib.Path | None) -> BuildMetadata:
@@ -304,7 +344,7 @@ def parse_build_metadata(repo_root: pathlib.Path | None) -> BuildMetadata:
 				if value.startswith("1_"):
 					value = value.split("_", 1)[1]
 				java_hits.append(int(value))
-	metadata.java_major = max(java_hits) if java_hits else 17
+	metadata.java_major = max(java_hits) if java_hits else None
 	return metadata
 
 
@@ -399,9 +439,11 @@ def gradle_cache_contains(version: str | None) -> bool | None:
 def build_context(repo_root: pathlib.Path | None) -> ToolingContext:
 	sdk_root = find_sdk_root()
 	build_metadata = parse_build_metadata(repo_root)
+	wrapper_version = read_wrapper_distribution(repo_root)
+	gradle_java_max = gradle_supported_java_max(wrapper_version)
 	compile_sdk = build_metadata.compile_sdk
-	java_major = build_metadata.java_major
-	java_home = resolve_java_home(java_major)
+	java_major = build_metadata.java_major or min(17, gradle_java_max or 17)
+	java_home = resolve_java_home(java_major, gradle_java_max)
 	return ToolingContext(
 		repo_root=repo_root,
 		sdk_root=sdk_root,
@@ -452,6 +494,8 @@ def gradle_probe_command(wrapper: pathlib.Path, task: str, java_home: pathlib.Pa
 	]
 	if IS_WINDOWS and wrapper.name.endswith(".bat"):
 		return ["cmd.exe", "/c", str(wrapper), *args]
+	if not IS_WINDOWS and not os.access(wrapper, os.X_OK):
+		return ["/bin/sh", str(wrapper), *args]
 	return [str(wrapper), *args]
 
 
@@ -892,6 +936,8 @@ def gradle_command(wrapper: pathlib.Path, tasks: Sequence[str], java_home: pathl
 	]
 	if IS_WINDOWS and wrapper.name.endswith(".bat"):
 		return ["cmd.exe", "/c", str(wrapper), *args]
+	if not IS_WINDOWS and not os.access(wrapper, os.X_OK):
+		return ["/bin/sh", str(wrapper), *args]
 	return [str(wrapper), *args]
 
 
@@ -1156,6 +1202,9 @@ def do_doctor(args: argparse.Namespace, context: ToolingContext) -> None:
 		stdout(f"Launchers: {', '.join(launchers) if launchers else 'none found'}")
 		wrapper_version = read_wrapper_distribution(context.repo_root)
 		stdout(f"Gradle wrapper version: {wrapper_version or 'unknown'}")
+		gradle_java_max = gradle_supported_java_max(wrapper_version)
+		if gradle_java_max is not None:
+			stdout(f"Gradle wrapper Java max: {gradle_java_max}")
 		cached = gradle_cache_contains(wrapper_version)
 		if cached is not None:
 			stdout(f"Gradle wrapper cached: {'yes' if cached else 'no'}")
@@ -1199,6 +1248,11 @@ def do_doctor(args: argparse.Namespace, context: ToolingContext) -> None:
 		stdout("Official guidance: https://developer.android.com/tools/sdkmanager")
 	if sdk_status(context.sdk_root) == "incomplete":
 		stdout("Setup note: SDK root was found but is incomplete. Install both platform-tools and Command-Line Tools.")
+	if context.repo_root:
+		wrapper_version = read_wrapper_distribution(context.repo_root)
+		gradle_java_max = gradle_supported_java_max(wrapper_version)
+		if gradle_java_max is not None and context.java_home is None:
+			stdout(f"Setup note: no compatible JAVA_HOME was found for this wrapper. Gradle {wrapper_version} supports up to Java {gradle_java_max}.")
 	if context.repo_root and gradle_cache_contains(read_wrapper_distribution(context.repo_root)) is False:
 		stdout("Fresh clone note: the first Gradle wrapper run downloads its distribution if it is not already cached.")
 
@@ -1207,6 +1261,12 @@ def do_build_lint(args: argparse.Namespace, context: ToolingContext) -> None:
 	if not context.repo_root or not context.gradle_wrapper:
 		raise SystemExit("Gradle wrapper not found. Run this command in an Android repo or pass --repo.")
 	if not context.java_home:
+		wrapper_version = read_wrapper_distribution(context.repo_root)
+		gradle_java_max = gradle_supported_java_max(wrapper_version)
+		if gradle_java_max is not None:
+			raise SystemExit(
+				f"Could not resolve JAVA_HOME for Java {context.java_major}+ compatible with Gradle {wrapper_version} (max Java {gradle_java_max})."
+			)
 		raise SystemExit(f"Could not resolve JAVA_HOME for Java {context.java_major}+.")
 	out_dir = temp_dir_for("build", args.out_dir)
 	log_path = out_dir / "gradle-build-lint.log"

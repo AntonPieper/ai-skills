@@ -29,9 +29,6 @@ On Windows prefer `py -3` if `python` is unavailable.
 The helper uses only the Python standard library.
 `--repo` works before or after the subcommand.
 
-If you test this skill with non-interactive `copilot -p`, preapprove tool and path access.
-`copilot --allow-all` works, or the narrower equivalent `--allow-all-tools --allow-all-paths`.
-
 References:
 
 - `references/setup-first-time.md`
