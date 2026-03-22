@@ -14,7 +14,7 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Iterable, Sequence, TypeVar
 
 
 IS_WINDOWS = os.name == "nt"
@@ -26,6 +26,8 @@ TEMP_PREFIXES: dict[str, str] = {
 }
 
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+MODULE_TOKEN_RE = re.compile(r'"(:[^"]+)"|\'(:[^\']+)\'')
+T = TypeVar("T")
 
 
 @dataclass
@@ -39,8 +41,11 @@ class ToolingContext:
 	avdmanager: pathlib.Path | None
 	gradle_wrapper: pathlib.Path | None
 	wrapper_version: str | None
+	agp_version: str | None
 	compile_sdk: int | None
 	java_major: int
+	modules: tuple[str, ...] | None = None
+	launchers: tuple[str, ...] | None = None
 
 
 @dataclass
@@ -55,6 +60,17 @@ def stdout(message: str = "") -> None:
 
 def stderr(message: str) -> None:
 	print(message, file=sys.stderr, flush=True)
+
+
+def ordered_unique(items: Iterable[T]) -> list[T]:
+	seen: set[T] = set()
+	ordered: list[T] = []
+	for item in items:
+		if item in seen:
+			continue
+		seen.add(item)
+		ordered.append(item)
+	return ordered
 
 
 def temp_dir(prefix: str, explicit: str | None) -> pathlib.Path:
@@ -112,14 +128,7 @@ def candidate_sdk_roots() -> list[pathlib.Path]:
 			home / "Library" / "Android" / "sdk",
 		])
 
-	seen: set[pathlib.Path] = set()
-	unique: list[pathlib.Path] = []
-	for root in roots:
-		if root in seen:
-			continue
-		seen.add(root)
-		unique.append(root)
-	return unique
+	return ordered_unique(roots)
 
 
 def find_sdk_root() -> pathlib.Path | None:
@@ -268,18 +277,14 @@ def candidate_java_homes(required_major: int) -> list[pathlib.Path]:
 	if value:
 		paths.append(pathlib.Path(value).expanduser())
 
-	seen: set[pathlib.Path] = set()
 	ordered: list[pathlib.Path] = []
 	for path in paths:
 		try:
 			resolved = path.resolve()
 		except FileNotFoundError:
 			continue
-		if resolved in seen:
-			continue
-		seen.add(resolved)
 		ordered.append(resolved)
-	return ordered
+	return ordered_unique(ordered)
 
 
 def resolve_java_home(required_major: int, max_major: int | None = None) -> pathlib.Path | None:
@@ -356,6 +361,98 @@ def agp_required_java_min(version: str | None) -> int | None:
 	return 8
 
 
+def version_is_older_than(version: str | None, minimum: tuple[int, ...]) -> bool:
+	parsed = parse_gradle_version(version)
+	return bool(parsed and parsed < minimum)
+
+
+def repo_uses_jcenter(repo_root: pathlib.Path | None) -> bool:
+	for path in iter_build_files(repo_root):
+		text = file_text(path)
+		if text and "jcenter()" in text:
+			return True
+	return False
+
+
+def repo_uses_deprecated_configurations(repo_root: pathlib.Path | None) -> bool:
+	pattern = re.compile(r"^\s*(?:compile|testCompile|androidTestCompile|runtime)\b", re.MULTILINE)
+	for path in iter_build_files(repo_root):
+		text = file_text(path)
+		if text and pattern.search(text):
+			return True
+	return False
+
+
+def build_file_has_namespace(module_root: pathlib.Path) -> bool:
+	for name in ("build.gradle.kts", "build.gradle"):
+		text = file_text(module_root / name)
+		if text and re.search(r"\bnamespace\s*(?:=|\s+)\s*[\"']", text):
+			return True
+	return False
+
+
+def missing_namespace_modules(context: ToolingContext) -> list[str]:
+	parsed = parse_gradle_version(context.agp_version)
+	if not context.repo_root or not parsed or parsed < (8, 0):
+		return []
+	missing: list[str] = []
+	for module_name in discover_modules(context):
+		module_root = module_dir(context.repo_root, module_name)
+		if module_name != ":" and not has_android_application_plugin(module_root):
+			continue
+		if not build_file_has_namespace(module_root):
+			missing.append(module_name)
+	return missing
+
+
+def modernization_notes(context: ToolingContext) -> list[str]:
+	if not context.repo_root:
+		return []
+	notes: list[str] = []
+	if version_is_older_than(context.wrapper_version, (7, 0)) or version_is_older_than(context.agp_version, (7, 0)):
+		notes.append(
+			"Modernization note: legacy Gradle/AGP detected. Prefer upgrading gradle-wrapper.properties and the AGP version together, then regenerating wrapper files with the wrapper task. Do not patch gradlew or gradlew.bat manually."
+		)
+	if repo_uses_jcenter(context.repo_root):
+		notes.append("Modernization note: replace jcenter() with google() and mavenCentral() where dependencies allow.")
+	if repo_uses_deprecated_configurations(context.repo_root):
+		notes.append(
+			"Modernization note: replace deprecated dependency configurations such as compile, testCompile, androidTestCompile, and runtime with implementation, testImplementation, androidTestImplementation, and runtimeOnly before moving to Gradle 7+."
+		)
+	missing_modules = missing_namespace_modules(context)
+	if missing_modules:
+		notes.append(
+			f"Modernization note: AGP 8+ requires namespace in each Android module. Missing namespace in: {', '.join(missing_modules)}."
+		)
+	return notes
+
+
+def modernization_hints_from_log(log_text: str) -> list[str]:
+	hints: list[str] = []
+	patterns = [
+		(
+			re.compile(r"SAXParseException|extension-level|fractional api-level", re.IGNORECASE),
+			"Modernization hint: this Gradle/AGP toolchain is too old for the installed Android SDK metadata. Upgrade the wrapper and AGP together instead of changing local SDK or wrapper scripts.",
+		),
+		(
+			re.compile(r"Could not find com\.android\.tools\.build:gradle:", re.IGNORECASE),
+			"Modernization hint: the requested Android Gradle Plugin artifact is obsolete or unavailable. Upgrade AGP and the Gradle wrapper together, and keep repositories to google() and mavenCentral().",
+		),
+		(
+			re.compile(r"Could not find method (?:compile|testCompile|androidTestCompile|runtime)\(", re.IGNORECASE),
+			"Modernization hint: deprecated dependency configurations are no longer supported. Replace them with implementation, testImplementation, androidTestImplementation, and runtimeOnly.",
+		),
+		(
+			re.compile(r"Namespace not specified", re.IGNORECASE),
+			"Modernization hint: AGP 8+ requires namespace in each Android module's build file.",
+		),
+	]
+	for pattern, message in patterns:
+		if pattern.search(log_text):
+			hints.append(message)
+	return ordered_unique(hints)
+
+
 def parse_build_metadata(repo_root: pathlib.Path | None) -> BuildMetadata:
 	metadata = BuildMetadata()
 	if not repo_root:
@@ -406,6 +503,15 @@ def detect_agp_version(repo_root: pathlib.Path | None) -> str | None:
 	return None
 
 
+def parse_module_tokens(text: str) -> list[str]:
+	modules: list[str] = []
+	for token in MODULE_TOKEN_RE.findall(text):
+		module = token[0] or token[1]
+		if module:
+			modules.append(module)
+	return modules
+
+
 def parse_settings_modules(repo_root: pathlib.Path | None) -> list[str]:
 	if not repo_root:
 		return []
@@ -419,27 +525,15 @@ def parse_settings_modules(repo_root: pathlib.Path | None) -> list[str]:
 			continue
 		modules: list[str] = []
 		for match in re.findall(r"include\(([^)]+)\)", text):
-			for token in re.findall(r'"(:[^"]+)"|\'(:[^\']+)\'', match):
-				module = token[0] or token[1]
-				if module:
-					modules.append(module)
+			modules.extend(parse_module_tokens(match))
 
 		for line in text.splitlines():
 			legacy = re.match(r"^\s*include\s+(.+)$", line)
 			if not legacy:
 				continue
-			for token in re.findall(r'"(:[^"]+)"|\'(:[^\']+)\'', legacy.group(1)):
-				module = token[0] or token[1]
-				if module:
-					modules.append(module)
+			modules.extend(parse_module_tokens(legacy.group(1)))
 
-		seen: set[str] = set()
-		ordered: list[str] = []
-		for module in modules:
-			if module in seen:
-				continue
-			seen.add(module)
-			ordered.append(module)
+		ordered = ordered_unique(modules)
 		if ordered:
 			return ordered
 	return []
@@ -533,6 +627,7 @@ def build_context(repo_root: pathlib.Path | None) -> ToolingContext:
 		avdmanager=find_tool("avdmanager", sdk_root, ("cmdline-tools", "latest", "bin", "avdmanager")),
 		gradle_wrapper=find_gradle_wrapper(repo_root),
 		wrapper_version=wrapper_version,
+		agp_version=agp_version,
 		compile_sdk=compile_sdk,
 		java_major=java_major,
 	)
@@ -580,12 +675,7 @@ def gradle_common_args(version: str | None, java_home: pathlib.Path, *, probe: b
 	return args
 
 
-def gradle_probe_command(wrapper: pathlib.Path, version: str | None, task: str, java_home: pathlib.Path) -> list[str]:
-	args = [
-		"-q",
-		*gradle_common_args(version, java_home, probe=True),
-		task,
-	]
+def wrap_gradle_command(wrapper: pathlib.Path, args: Sequence[str]) -> list[str]:
 	if IS_WINDOWS and wrapper.name.endswith(".bat"):
 		return ["cmd.exe", "/c", str(wrapper), *args]
 	if not IS_WINDOWS and not os.access(wrapper, os.X_OK):
@@ -593,16 +683,26 @@ def gradle_probe_command(wrapper: pathlib.Path, version: str | None, task: str, 
 	return [str(wrapper), *args]
 
 
+def gradle_probe_command(wrapper: pathlib.Path, version: str | None, task: str, java_home: pathlib.Path) -> list[str]:
+	args = [
+		"-q",
+		*gradle_common_args(version, java_home, probe=True),
+		task,
+	]
+	return wrap_gradle_command(wrapper, args)
+
+
 def gradle_probe_output(
 	repo_root: pathlib.Path,
 	wrapper: pathlib.Path | None,
+	wrapper_version: str | None,
 	java_home: pathlib.Path | None,
 	task: str,
 ) -> str | None:
 	if not wrapper or not java_home:
 		return None
 	result = run_capture(
-		gradle_probe_command(wrapper, read_wrapper_distribution(repo_root), task, java_home),
+		gradle_probe_command(wrapper, wrapper_version, task, java_home),
 		cwd=repo_root,
 		check=False,
 	)
@@ -614,9 +714,10 @@ def gradle_probe_output(
 def gradle_project_modules(
 	repo_root: pathlib.Path,
 	wrapper: pathlib.Path | None,
+	wrapper_version: str | None,
 	java_home: pathlib.Path | None,
 ) -> list[str]:
-	output = gradle_probe_output(repo_root, wrapper, java_home, "projects")
+	output = gradle_probe_output(repo_root, wrapper, wrapper_version, java_home, "projects")
 	if not output:
 		return []
 	modules: list[str] = []
@@ -624,26 +725,24 @@ def gradle_project_modules(
 		match = re.search(r"Project '(:[^']+)'", line)
 		if match:
 			modules.append(match.group(1))
-	seen: set[str] = set()
-	ordered: list[str] = []
-	for module in modules:
-		if module in seen:
-			continue
-		seen.add(module)
-		ordered.append(module)
-	return ordered
+	return ordered_unique(modules)
 
 
 def discover_modules(context: ToolingContext) -> list[str]:
 	if not context.repo_root:
 		return []
-	modules = gradle_project_modules(context.repo_root, context.gradle_wrapper, context.java_home)
+	if context.modules is not None:
+		return list(context.modules)
+	modules = gradle_project_modules(context.repo_root, context.gradle_wrapper, context.wrapper_version, context.java_home)
 	if modules:
-		return modules
+		context.modules = tuple(modules)
+		return list(context.modules)
 	modules = parse_settings_modules(context.repo_root)
 	if modules:
-		return modules
+		context.modules = tuple(modules)
+		return list(context.modules)
 	if any((context.repo_root / name).exists() for name in ("build.gradle", "build.gradle.kts")):
+		context.modules = (":",)
 		return [":"]
 	return []
 
@@ -708,19 +807,14 @@ def manifest_launcher_components(manifest_path: pathlib.Path, fallback_package: 
 				if has_main and has_launcher and package_name:
 					launchers.append(f"{package_name}/{component_name}")
 					break
-	seen: set[str] = set()
-	ordered: list[str] = []
-	for launcher in launchers:
-		if launcher in seen:
-			continue
-		seen.add(launcher)
-		ordered.append(launcher)
-	return ordered
+	return ordered_unique(launchers)
 
 
 def discover_launchers(context: ToolingContext) -> list[str]:
 	if not context.repo_root:
 		return []
+	if context.launchers is not None:
+		return list(context.launchers)
 	launchers: list[str] = []
 	for module_name in discover_modules(context):
 		module_root = module_dir(context.repo_root, module_name)
@@ -729,14 +823,8 @@ def discover_launchers(context: ToolingContext) -> list[str]:
 		manifest = module_root / "src" / "main" / "AndroidManifest.xml"
 		if manifest.exists():
 			launchers.extend(manifest_launcher_components(manifest, module_application_package(module_root)))
-	seen: set[str] = set()
-	ordered: list[str] = []
-	for launcher in launchers:
-		if launcher in seen:
-			continue
-		seen.add(launcher)
-		ordered.append(launcher)
-	return ordered
+	context.launchers = tuple(ordered_unique(launchers))
+	return list(context.launchers)
 
 
 def find_report_files(repo_root: pathlib.Path, module_names: Sequence[str]) -> list[pathlib.Path]:
@@ -749,15 +837,7 @@ def find_report_files(repo_root: pathlib.Path, module_names: Sequence[str]) -> l
 	problem_report = repo_root / "build" / "reports" / "problems" / "problems-report.html"
 	if problem_report.exists():
 		reports.append(problem_report)
-	seen: set[pathlib.Path] = set()
-	ordered: list[pathlib.Path] = []
-	for report in reports:
-		resolved = report.resolve()
-		if resolved in seen or not report.exists():
-			continue
-		seen.add(resolved)
-		ordered.append(report)
-	return ordered
+	return ordered_unique(report for report in reports if report.exists())
 
 
 def run_and_stream(
@@ -1023,11 +1103,7 @@ def gradle_command(wrapper: pathlib.Path, version: str | None, tasks: Sequence[s
 		*gradle_common_args(version, java_home, probe=False),
 		*tasks,
 	]
-	if IS_WINDOWS and wrapper.name.endswith(".bat"):
-		return ["cmd.exe", "/c", str(wrapper), *args]
-	if not IS_WINDOWS and not os.access(wrapper, os.X_OK):
-		return ["/bin/sh", str(wrapper), *args]
-	return [str(wrapper), *args]
+	return wrap_gradle_command(wrapper, args)
 
 
 def detect_build_tools_package(compile_sdk: int | None) -> str | None:
@@ -1291,6 +1367,7 @@ def do_doctor(args: argparse.Namespace, context: ToolingContext) -> None:
 		stdout(f"Launchers: {', '.join(launchers) if launchers else 'none found'}")
 		wrapper_version = context.wrapper_version
 		stdout(f"Gradle wrapper version: {wrapper_version or 'unknown'}")
+		stdout(f"Android Gradle Plugin: {context.agp_version or 'unknown'}")
 		gradle_java_max = gradle_supported_java_max(wrapper_version)
 		if gradle_java_max is not None:
 			stdout(f"Gradle wrapper Java max: {gradle_java_max}")
@@ -1338,19 +1415,21 @@ def do_doctor(args: argparse.Namespace, context: ToolingContext) -> None:
 	if sdk_status(context.sdk_root) == "incomplete":
 		stdout("Setup note: SDK root was found but is incomplete. Install both platform-tools and Command-Line Tools.")
 	if context.repo_root:
-		wrapper_version = read_wrapper_distribution(context.repo_root)
+		wrapper_version = context.wrapper_version
 		gradle_java_max = gradle_supported_java_max(wrapper_version)
 		if gradle_java_max is not None and context.java_home is None:
 			stdout(f"Setup note: no compatible JAVA_HOME was found for this wrapper. Gradle {wrapper_version} supports up to Java {gradle_java_max}.")
-	if context.repo_root and gradle_cache_contains(read_wrapper_distribution(context.repo_root)) is False:
+	if context.repo_root and gradle_cache_contains(context.wrapper_version) is False:
 		stdout("Fresh clone note: the first Gradle wrapper run downloads its distribution if it is not already cached.")
+	for note in modernization_notes(context):
+		stdout(note)
 
 
 def do_build_lint(args: argparse.Namespace, context: ToolingContext) -> None:
 	if not context.repo_root or not context.gradle_wrapper:
 		raise SystemExit("Gradle wrapper not found. Run this command in an Android repo or pass --repo.")
 	if not context.java_home:
-		wrapper_version = read_wrapper_distribution(context.repo_root)
+		wrapper_version = context.wrapper_version
 		gradle_java_max = gradle_supported_java_max(wrapper_version)
 		if gradle_java_max is not None:
 			raise SystemExit(
@@ -1377,6 +1456,11 @@ def do_build_lint(args: argparse.Namespace, context: ToolingContext) -> None:
 		stdout(f"Environment warning: {warning}")
 	for report in find_report_files(context.repo_root, discover_modules(context) or [":"]):
 		stdout(f"Report: {report}")
+	if code != 0:
+		for note in modernization_notes(context):
+			stdout(note)
+		for hint in modernization_hints_from_log(log_text):
+			stdout(hint)
 	raise SystemExit(code)
 
 

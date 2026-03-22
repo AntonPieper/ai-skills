@@ -72,6 +72,10 @@ Defaults: wrapper build, resolved `JAVA_HOME`, concise console
 output, detected app module, and printed report paths. Add
 `--stream` only when full Gradle output matters.
 
+If `doctor` or `build-lint` reports legacy Gradle or AGP issues,
+switch to `references/troubleshooting.md` and follow the modernization
+guidance there instead of improvising wrapper or environment hacks.
+
 1. Capture only what you need.
 
 Capture evidence with one command:
