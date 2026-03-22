@@ -851,6 +851,8 @@ def run_and_stream(
 	cwd: pathlib.Path | None = None,
 	env: dict[str, str] | None = None,
 	log_path: pathlib.Path | None = None,
+	timeout: float | None = None,
+	heartbeat_seconds: float = 30.0,
 	check: bool = False,
 ) -> int:
 	log_file = log_path.open("w", encoding="utf-8") if log_path else None
@@ -868,16 +870,38 @@ def run_and_stream(
 		raise SystemExit(str(exc))
 
 	assert process.stdout is not None
-	for line in process.stdout:
-		sys.stdout.write(line)
-		if log_file:
-			log_file.write(line)
-	process.wait()
+	deadline = time.monotonic() + timeout if timeout else None
+	next_heartbeat = time.monotonic() + heartbeat_seconds
+	while True:
+		line = process.stdout.readline()
+		if line:
+			sys.stdout.write(line)
+			if log_file:
+				log_file.write(line)
+				tlog = log_file.flush()
+		if process.poll() is not None:
+			for line in process.stdout:
+				sys.stdout.write(line)
+				if log_file:
+					log_file.write(line)
+					log_file.flush()
+			break
+		now = time.monotonic()
+		if now >= next_heartbeat:
+			stdout(f"Gradle still running... log: {log_path}" if log_path else "Gradle still running...")
+			next_heartbeat = now + heartbeat_seconds
+		if deadline is not None and now >= deadline:
+			process.kill()
+			if log_file:
+				log_file.flush()
+			stdout(f"Gradle timed out after {int(timeout)} seconds.")
+			return 124
 	if log_file:
 		log_file.close()
-	if check and process.returncode != 0:
-		raise SystemExit(process.returncode)
-	return process.returncode
+	returncode = process.returncode or 0
+	if check and returncode != 0:
+		raise SystemExit(returncode)
+	return returncode
 
 
 def run_to_log(
@@ -886,18 +910,37 @@ def run_to_log(
 	cwd: pathlib.Path | None = None,
 	env: dict[str, str] | None = None,
 	log_path: pathlib.Path,
+	timeout: float | None = None,
+	heartbeat_seconds: float = 30.0,
 ) -> int:
 	with log_path.open("w", encoding="utf-8") as handle:
-		result = subprocess.run(
-			list(args),
-			cwd=str(cwd) if cwd else None,
-			env=env,
-			stdout=handle,
-			stderr=subprocess.STDOUT,
-			text=True,
-			check=False,
-		)
-	return result.returncode
+		try:
+			process = subprocess.Popen(
+				list(args),
+				cwd=str(cwd) if cwd else None,
+				env=env,
+				stdout=handle,
+				stderr=subprocess.STDOUT,
+				text=True,
+			)
+		except OSError as exc:
+			raise SystemExit(str(exc))
+		deadline = time.monotonic() + timeout if timeout else None
+		next_heartbeat = time.monotonic() + heartbeat_seconds
+		while process.poll() is None:
+			time.sleep(1)
+			now = time.monotonic()
+			if now >= next_heartbeat:
+				handle.flush()
+				stdout(f"Gradle still running... log: {log_path}")
+				next_heartbeat = now + heartbeat_seconds
+			if deadline is not None and now >= deadline:
+				process.kill()
+				handle.flush()
+				stdout(f"Gradle timed out after {int(timeout)} seconds.")
+				return 124
+		handle.flush()
+		return process.returncode or 0
 
 
 def run_capture(
@@ -1467,9 +1510,9 @@ def do_build_lint(args: argparse.Namespace, context: ToolingContext) -> None:
 	stdout("Running Gradle build and lint. First-time wrapper or dependency downloads may take a while.")
 	command = gradle_command(context.gradle_wrapper, context.wrapper_version, tasks, context.java_home)
 	if args.stream:
-		code = run_and_stream(command, cwd=context.repo_root, env=env, log_path=log_path)
+		code = run_and_stream(command, cwd=context.repo_root, env=env, log_path=log_path, timeout=args.timeout)
 	else:
-		code = run_to_log(command, cwd=context.repo_root, env=env, log_path=log_path)
+		code = run_to_log(command, cwd=context.repo_root, env=env, log_path=log_path, timeout=args.timeout)
 	stdout(f"Saved console output to {log_path}")
 	if not args.stream:
 		stdout("Tip: add --stream when interactive full Gradle output is required.")
@@ -1578,6 +1621,7 @@ def parse_args() -> argparse.Namespace:
 	add_repo_argument(build_lint)
 	build_lint.add_argument("--out-dir", help="Directory for the combined console log. Defaults to an OS temp directory.")
 	build_lint.add_argument("--stream", action="store_true", help="Stream full Gradle output to stdout. By default output is written only to the log file.")
+	build_lint.add_argument("--timeout", type=float, default=1800.0, help="Maximum Gradle runtime in seconds before the helper aborts. Defaults to 1800.")
 	build_lint.add_argument("tasks", nargs="*", help="Override Gradle tasks.")
 
 	capture = subparsers.add_parser(
