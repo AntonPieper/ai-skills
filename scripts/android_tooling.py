@@ -701,11 +701,16 @@ def gradle_probe_output(
 ) -> str | None:
 	if not wrapper or not java_home:
 		return None
+	stdout(f"Probe: Gradle {task}")
 	result = run_capture(
 		gradle_probe_command(wrapper, wrapper_version, task, java_home),
 		cwd=repo_root,
 		check=False,
+		timeout=15,
 	)
+	if result.returncode == 124:
+		stdout(f"Probe note: Gradle {task} timed out; falling back to static repo inspection.")
+		return None
 	if result.returncode != 0:
 		return None
 	return result.stdout
@@ -895,15 +900,30 @@ def run_to_log(
 	return result.returncode
 
 
-def run_capture(args: Sequence[str], *, cwd: pathlib.Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
-	result = subprocess.run(
-		list(args),
-		cwd=str(cwd) if cwd else None,
-		stdout=subprocess.PIPE,
-		stderr=subprocess.STDOUT,
-		text=True,
-		check=False,
-	)
+def run_capture(
+	args: Sequence[str],
+	*,
+	cwd: pathlib.Path | None = None,
+	check: bool = True,
+	timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+	try:
+		result = subprocess.run(
+			list(args),
+			cwd=str(cwd) if cwd else None,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			text=True,
+			check=False,
+			timeout=timeout,
+		)
+	except subprocess.TimeoutExpired as exc:
+		stdout_text = exc.stdout or ""
+		stderr_text = exc.stderr or ""
+		combined = stdout_text + stderr_text
+		if check:
+			raise SystemExit(combined or f"Command timed out after {timeout} seconds.")
+		return subprocess.CompletedProcess(list(args), 124, combined)
 	if check and result.returncode != 0:
 		raise SystemExit(result.stdout)
 	return result
@@ -1443,6 +1463,8 @@ def do_build_lint(args: argparse.Namespace, context: ToolingContext) -> None:
 	env["JAVA_HOME"] = str(context.java_home)
 	stdout(f"JAVA_HOME={context.java_home}")
 	stdout(f"Tasks={' '.join(tasks)}")
+	stdout(f"Gradle log: {log_path}")
+	stdout("Running Gradle build and lint. First-time wrapper or dependency downloads may take a while.")
 	command = gradle_command(context.gradle_wrapper, context.wrapper_version, tasks, context.java_home)
 	if args.stream:
 		code = run_and_stream(command, cwd=context.repo_root, env=env, log_path=log_path)
