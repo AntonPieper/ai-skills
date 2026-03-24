@@ -1,7 +1,6 @@
 ---
 name: android-development
-description: Lightweight Android CLI workflow for setup, build,
-  testing, device control, visual checks, and modernization.
+description: Lightweight Android CLI workflow for setup, build, testing, device control, visual checks, and modernization.
 ---
 
 # Android Development
@@ -16,44 +15,44 @@ description: Lightweight Android CLI workflow for setup, build,
 
 1. Discover installed tools.
 
-```bash
-java -version
-adb version
-adb devices -l
-```
+   ```bash
+   java -version
+   adb version
+   adb devices -l
+   ```
 
-1. Find the Android project root.
+2. Find the Android project root.
 
-```bash
-find . -maxdepth 4 \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \)
-```
+   ```bash
+   find . -maxdepth 4 \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \)
+   ```
 
-1. Run the smallest task that answers the question.
+3. Run the smallest task that answers the question.
 
-- Build, lint, and test:
+   - Build, lint, and unit test:
 
-```bash
-./gradlew assembleDebug
-./gradlew lint
-./gradlew test
-```
+     ```bash
+     ./gradlew assembleDebug
+     ./gradlew lint
+     ./gradlew test
+     ```
 
-- Connected-device or emulator tests:
+   - Run connected-device or emulator tests:
 
-```bash
-./gradlew connectedAndroidTest
-adb -s <serial> shell am instrument -w <test-package>/<runner>
-```
+     ```bash
+     ./gradlew connectedAndroidTest
+     adb -s <serial> shell am instrument -w <test-package>/<runner>
+     ```
 
-- UI evidence:
+   - Capture UI evidence:
 
-```bash
-adb -s <serial> exec-out screencap -p > screen.png
-adb -s <serial> shell uiautomator dump /sdcard/window_dump.xml
-adb -s <serial> logcat -d -v threadtime -t 200
-```
+     ```bash
+     adb -s <serial> exec-out screencap -p > screen.png
+     adb -s <serial> shell uiautomator dump /sdcard/window_dump.xml
+     adb -s <serial> logcat -d -v threadtime -t 200
+     ```
 
-1. If the build logic looks old, switch to modernization guidance.
+4. If the build logic looks old, switch to modernization guidance.
 
 ## Working Rules
 
@@ -72,7 +71,7 @@ adb -s <serial> logcat -d -v threadtime -t 200
 
 Open only the next reference you need:
 
-- `references/setup-update.md` for environment setup, required tools, package install, and updates.
+- `references/setup-update.md` for environment setup, required tools, package installation, and updates.
 - `references/nested-repo-discovery.md` for sample catalogs, monorepos, nested wrappers, and choosing the right Android project root.
 - `references/build-lint-test.md` for wrapper tasks, lint, unit tests, instrumentation tests, and report locations.
 - `references/device-emulator-control.md` for device discovery, AVD creation, emulator lifecycle, and boot readiness.
@@ -93,8 +92,8 @@ Switch to `references/modernization.md` when you see any of these:
 
 ## Visual Testing Rules
 
-- Treat the screenshot as source of truth for rendered UI.
-- Treat the hierarchy dump as structure for finding controls.
+- Treat the screenshot as the source of truth for rendered UI.
+- Treat the hierarchy dump as the source of truth for view structure and control discovery.
 - Downsize screenshots to a max dimension of 512px by default.
 - Use short video only when motion matters, and reduce it before sharing.
 - Never dump unbounded logcat or large image sets into the conversation by default.
