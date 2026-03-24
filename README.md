@@ -1,22 +1,30 @@
 # android-development
 
-Cross-platform Android development skill for GitHub Copilot
-and other skills-compatible agents.
+Lightweight Android CLI skill for GitHub Copilot and other
+skills-compatible agents.
 
-It provides a small Python helper for common Android workflows:
+This package is built around progressive disclosure:
 
-- bootstrap Android tooling on fresh clones
-- resolve a compatible Java runtime for Gradle
-- run build and lint with the Gradle wrapper
-- capture screenshots, hierarchy dumps, and bounded logcat
-- batch adb UI actions
-- start emulators and send emulator console commands
+- `SKILL.md` stays small and acts as the router.
+- Each reference file handles one topic only.
+- There are no custom scripts or helper CLIs.
+- Agents are expected to use standard Android and Gradle commands.
+
+## Covers
+
+- environment setup and updates
+- nested Android repo discovery
+- tool discovery
+- build, lint, and tests
+- emulator and device lifecycle
+- on-device interaction and visual checks
+- bounded diagnostics
+- legacy build-system modernization
 
 ## Layout
 
 - `SKILL.md`: the skill instructions shown to the agent
-- `scripts/android_tooling.py`: the helper CLI
-- `references/`: short setup and troubleshooting notes
+- `references/`: small topic files loaded only when needed
 
 ## Install
 
@@ -33,59 +41,33 @@ cd /path/to/repo
 npx skills add /absolute/path/to/android-development -a github-copilot -y
 ```
 
-## Copilot CLI note
-
-Skills do not declare runtime permissions themselves. Tool and
-path approvals are controlled by the agent runtime.
-
-For helper-only, non-interactive `copilot -p` runs, prefer a
-project install and narrow Python shell approval instead of
-`--allow-all`:
+List the skill without installing:
 
 ```bash
-cd /path/to/repo
-npx skills add /absolute/path/to/android-development -a github-copilot -y
-copilot -p "Use the android-development skill ..." \
-  --allow-tool='shell(python:*)' \
-  --allow-tool='shell(python3:*)'
+npx skills add /absolute/path/to/android-development --list
 ```
 
-On Windows, also allow `py` if needed:
+## Design Rules
 
-```powershell
-copilot -p "Use the android-development skill ..." --allow-tool='shell(py:*)'
-```
+- Keep the root skill short.
+- Keep reference files small and topic-specific.
+- Prefer standard commands such as `sdkmanager`, `avdmanager`, `emulator`, `adb`, and `./gradlew`.
+- Prefer cheap Gradle inspection such as `./gradlew -q projects` and `help --task` before `tasks --all`.
+- Do not add custom helper scripts back into the package.
+- Put high-churn details in references, not in `SKILL.md`.
 
-For global installs, add the installed skills directory if the
-runtime restricts path access:
+## Validation
+
+Skill package smoke test:
 
 ```bash
-copilot -p "Use the android-development skill ..." \
-  --allow-tool='shell(python:*)' \
-  --allow-tool='shell(python3:*)' \
-  --add-dir ~/.agents/skills
+npx skills add /absolute/path/to/android-development --list
 ```
 
-If you want Copilot CLI to run direct repo shell commands
-beyond the helper, use a trusted project directory and widen
-approvals deliberately, for example `--allow-tool='shell'`.
-
-Without preapproved shell access, non-interactive Copilot CLI
-runs can deny helper execution because they cannot pause to ask
-for permission.
-
-## Helper usage
+Local Copilot CLI smoke test:
 
 ```bash
-python scripts/android_tooling.py --help
-python scripts/android_tooling.py doctor --repo /path/to/android/repo
+copilot --model <raptor-mini-or-gpt-5-mini> -p "Use the android-development skill. Show the smallest standard commands to discover the Android toolchain and project wrapper tasks." --allow-tool='shell' --add-dir /absolute/path/to/android-development
 ```
 
-## Development
-
-Validate the helper locally:
-
-```bash
-python3 -m py_compile scripts/android_tooling.py
-python3 scripts/android_tooling.py --help
-```
+Prefer a Raptor mini model if the local CLI exposes it. If not, use GPT-5 mini.

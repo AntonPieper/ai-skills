@@ -1,76 +1,74 @@
 # Troubleshooting
 
-## JAVA_HOME not resolved
+Use this file as a symptom router. If a fix needs more than a few commands, switch to the dedicated reference instead of expanding here.
 
-Symptoms:
+## Missing SDK Or Command-Line Tools
 
-- Could not resolve JAVA_HOME for Java N+
+- `sdkmanager` not found
+- `avdmanager` not found
+- `adb` or `emulator` missing from `PATH`
 
-Actions:
+Next step:
 
-1. Run doctor and read Required Java and JAVA_HOME lines.
-2. Set ANDROID_JAVA_HOME to a compatible JDK.
-3. Re-run build-lint.
+- Open `references/setup-update.md`.
 
-## sdkmanager not found
+## Wrong Java Or Gradle Runtime
 
-Symptoms:
+- Gradle fails before configuration starts.
+- Java is too old or too new for the project.
+- `./gradlew --version` does not match the expected JDK.
 
-- sdkmanager not found. Install Android SDK Command-Line Tools first.
+Next step:
 
-Actions:
+- Open `references/setup-update.md` first.
+- Then rerun `./gradlew --version`.
 
-1. Install Command-Line Tools to `SDK_ROOT/cmdline-tools/latest/bin`.
-1. Ensure ANDROID_SDK_ROOT points to the same SDK root.
-1. Re-run doctor.
+## Gradle Wrapper Not Executable
 
-## Emulator console simulation fails
+- `./gradlew` is not executable.
 
-Symptoms:
+Next step:
 
-- Could not read emulator console token
-- Connection refused on localhost console port
+- Try `sh ./gradlew --version` or `sh ./gradlew <task>` first.
+- If a file mode change is acceptable, use `chmod +x gradlew` and retry.
 
-Actions:
+## Build, Lint, Or Test Task Unclear
 
-1. Confirm serial is `emulator-PORT`.
-1. Verify the emulator is running and booted.
-1. Confirm `~/.emulator_console_auth_token` exists.
-1. Retry with explicit `--port`.
+- You do not know which Gradle task to run.
+- Lint or tests already exist, but the right wrapper task is unclear.
 
-## No useful hierarchy for rendering surfaces
+Next step:
 
-Symptoms:
+- Open `references/build-lint-test.md`.
 
-- hierarchy.xml exists but does not describe the rendered content
+## Device Or Emulator Not Ready
 
-Actions:
+- No device appears in `adb devices -l`.
+- Emulator is running but not usable yet.
+- You need to create, boot, stop, or identify a target device.
 
-1. Use screen.png as source of truth for visual output.
-2. Use hierarchy only to find controls and navigation elements.
-3. Capture before and after interaction and compare screenshots.
+Next step:
 
-## Obsolete Gradle wrapper or AGP
+- Open `references/device-emulator-control.md`.
 
-Symptoms:
+## Need UI Interaction Or Visual Evidence
 
-- `SAXParseException` while parsing Android SDK repository metadata
-- `Could not find com.android.tools.build:gradle:X.Y.Z`
-- `Could not find method compile()` or `testCompile()`
-- `Namespace not specified`
+- You need taps, key events, screenshots, hierarchy dumps, or bounded logcat.
+- You need a small evidence bundle for a UI issue.
 
-Actions:
+Next step:
 
-1. Treat this as a modernization task, not an environment hack.
-2. Upgrade `gradle/wrapper/gradle-wrapper.properties` to a supported
-	Gradle release and regenerate wrapper files with the `wrapper` task.
-3. Upgrade the Android Gradle Plugin in build files together with the
-	wrapper version.
-4. Replace `jcenter()` with `google()` and `mavenCentral()` where
-	dependencies allow.
-5. Replace deprecated dependency configurations with
-	`implementation`, `testImplementation`,
-	`androidTestImplementation`, and `runtimeOnly`.
-6. Add `namespace` entries before moving to AGP 8+.
-7. Do not patch `gradlew` or `gradlew.bat` manually, create fake SDK/JDK
-	layouts, or modify the skill/helper to fake a pass.
+- Open `references/on-device-interaction-visual-testing.md`.
+
+## Legacy Build Logic
+
+- `jcenter()` or `flatDir`
+- `compile` or `testCompile`
+- `buildscript {}` plus `apply plugin:` everywhere
+- no `namespace`
+- support libraries instead of AndroidX
+- old wrapper or AGP compatibility failures
+
+Next step:
+
+- Open `references/modernization.md`.

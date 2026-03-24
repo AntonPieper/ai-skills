@@ -11,16 +11,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.12'
+          node-version: '22'
 
-      - name: Validate helper syntax
-        run: python -m py_compile scripts/android_tooling.py
-
-      - name: Validate helper help output
-        run: python scripts/android_tooling.py --help
+      - name: Validate skills package
+        run: npx skills add "$PWD" --list
 
       - name: Lint Markdown
         uses: DavidAnson/markdownlint-cli2-action@v18
