@@ -5,6 +5,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+output_contains_text() {
+  local text="$1"
+  local needle="$2"
+  printf '%s\n' "$text" | grep -Fq "$needle"
+}
+
 extract_skill_name() {
   awk '
     BEGIN { in_frontmatter = 0 }
@@ -88,13 +94,13 @@ for skill_file in "${skill_files[@]}"; do
   printf '%s\n' "$skill_name" >> "$seen_names_file"
   skill_names+=("$skill_name")
 
-  if ! printf '%s\n' "$root_list_output" | rg -q "$skill_name"; then
+  if ! output_contains_text "$root_list_output" "$skill_name"; then
     echo "Root skill listing did not include $skill_name" >&2
     exit 1
   fi
 
   direct_output="$(cd "$REPO_DIR" && npx -y skills add "$skill_dir" --list)"
-  if ! printf '%s\n' "$direct_output" | rg -q "$skill_name"; then
+  if ! output_contains_text "$direct_output" "$skill_name"; then
     echo "Direct skill listing failed for $skill_name at $skill_dir" >&2
     exit 1
   fi
@@ -105,7 +111,7 @@ for skill_file in "${skill_files[@]}"; do
       echo "Missing referenced file '$relative_reference' from $skill_file" >&2
       exit 1
     fi
-  done < <(rg -o 'references/[A-Za-z0-9._/-]+\.md' "$skill_file" | sort -u)
+  done < <(grep -Eo 'references/[A-Za-z0-9._/-]+\.md' "$skill_file" | sort -u)
 
   temp_home="$(mktemp -d)"
   temp_cache="$temp_home/.npm"
