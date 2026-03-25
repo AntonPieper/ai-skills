@@ -1,9 +1,11 @@
 ---
 name: android-development
-description: Lightweight Android CLI workflow for setup, build, testing, device control, visual checks, and modernization.
+description: Token-efficient Android CLI workflow for setup, build, testing, device control, visual checks, and modernization.
 ---
 
 # Android Development
+
+Keep context small. Read only the next file, command output, screenshot, or XML slice needed to answer the task. When Android or Copilot tool behavior is unclear, prefer official docs through GitHub Docs, Context7, web tools, browser tools, or GitHub MCP before assuming.
 
 ## Use It When
 
@@ -13,7 +15,7 @@ description: Lightweight Android CLI workflow for setup, build, testing, device 
 
 ## Default Flow
 
-1. Discover installed tools.
+1. Discover installed tools if the environment is unclear.
 
    ```bash
    java -version
@@ -27,32 +29,7 @@ description: Lightweight Android CLI workflow for setup, build, testing, device 
    find . -maxdepth 4 \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \)
    ```
 
-3. Run the smallest task that answers the question.
-
-   - Build, lint, and unit test:
-
-     ```bash
-     ./gradlew assembleDebug
-     ./gradlew lint
-     ./gradlew test
-     ```
-
-   - Run connected-device or emulator tests:
-
-     ```bash
-     ./gradlew connectedAndroidTest
-     adb -s <serial> shell am instrument -w <test-package>/<runner>
-     ```
-
-   - Capture UI evidence:
-
-     ```bash
-     adb -s <serial> exec-out screencap -p > screen.png
-     adb -s <serial> shell uiautomator dump /sdcard/window_dump.xml
-     adb -s <serial> logcat -d -v threadtime -t 200
-     ```
-
-4. If the build logic looks old, switch to modernization guidance.
+3. Open only the next reference you need, then run the smallest task that answers the question.
 
 ## Working Rules
 
@@ -60,9 +37,10 @@ description: Lightweight Android CLI workflow for setup, build, testing, device 
 - Prefer `./gradlew` over global `gradle`.
 - In multi-sample or monorepo layouts, first find the nearest Android project root with `gradlew` plus `settings.gradle(.kts)`.
 - Prefer explicit device targeting with `adb -s <serial>`.
-- Prefer `./gradlew help --task <task>` over `tasks --all` when one task name is already known.
-- Prefer one screenshot, one hierarchy dump, and bounded log output.
-- Prefer report files over long console output when lint or tests already generate them.
+- Prefer file reads and `./gradlew help --task <task>` over broad Gradle inspection.
+- Prefer screenshot-first UI inspection. Reduce screenshots to a max dimension of 512px by default.
+- Keep hierarchy dumps on disk, search them first, then read only matching slices.
+- Prefer bounded logs and generated reports over long console output.
 - Prefer stable, idempotent device flows: force-stop, start, verify, then capture.
 - Prefer one finite test or capture sequence, not shell loops.
 - Avoid destructive emulator actions such as `-wipe-data` unless the user asks for them.
@@ -89,11 +67,3 @@ Switch to `references/modernization.md` when you see any of these:
 - missing `namespace`
 - support libraries instead of AndroidX
 - heavy root `allprojects` or `subprojects` build logic
-
-## Visual Testing Rules
-
-- Treat the screenshot as the source of truth for rendered UI.
-- Treat the hierarchy dump as the source of truth for view structure and control discovery.
-- Downsize screenshots to a max dimension of 512px by default.
-- Use short video only when motion matters, and reduce it before sharing.
-- Never dump unbounded logcat or large image sets into the conversation by default.

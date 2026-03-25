@@ -2,6 +2,12 @@
 
 Use this file for adb-driven app interaction, screenshots, hierarchy dumps, and small evidence bundles.
 
+Default order for UI triage:
+
+1. reduced screenshot
+2. targeted hierarchy search only if the screenshot is not enough
+3. bounded logcat only if behavior or failures still need explanation
+
 ## Stable Interaction Loop
 
 Prefer a repeatable sequence:
@@ -30,7 +36,10 @@ Use the screenshot as source of truth:
 
 ```bash
 adb -s <serial> exec-out screencap -p > screen.png
+sips -Z 512 screen.png --out screen-512.png
 ```
+
+Open the reduced copy first. Keep the original only if you later need to zoom further.
 
 Use the hierarchy dump to find controls:
 
@@ -41,6 +50,16 @@ adb -s <serial> shell rm /sdcard/window_dump.xml
 ```
 
 Hierarchy dumps can miss video, camera, games, or other GPU-heavy surfaces.
+
+Do not read the entire dump by default. Search first, then inspect only the local region you need:
+
+```bash
+wc -c window_dump.xml
+rg -n 'text="Settings"|resource-id="com.example:id/login"|content-desc="Open navigation"' window_dump.xml
+sed -n '120,170p' window_dump.xml
+```
+
+If the first search misses, refine the search term or take a fresh screenshot before reading broader XML slices.
 
 ## Bounded Diagnostics
 
@@ -71,6 +90,7 @@ Default bundle for a UI issue:
 4. exact package, activity, and serial used
 
 Do not attach videos or multiple screenshots unless motion or state transitions matter.
+Do not inline the full hierarchy dump. Summarize the matching nodes or quote only the small slice you inspected.
 
 ## Default Reduction
 
