@@ -1,5 +1,8 @@
 name: Android Development Smoke
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 on:
   workflow_dispatch:
   schedule:
@@ -33,13 +36,14 @@ jobs:
       REPOS: termux,cleanarchitecture
       SCENARIOS: discovery,tasks,modernization,ui-triage
       JOBS: '2'
+      RUN_ROOT: /tmp/android-development-smoke/run-${{ github.run_id }}-${{ github.run_attempt }}
       TIMEOUT_SECONDS: '240'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
 
@@ -49,12 +53,17 @@ jobs:
       - name: Run smoke matrix
         run: ./validation/android-development/smoke.sh
 
+      - name: Render smoke report
+        if: always()
+        run: node ./scripts/render-android-smoke-report.mjs "$RUN_ROOT"
+
       - name: Upload smoke summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-development-smoke
           path: |
-            /tmp/android-development-smoke/**/summary.tsv
-            /tmp/android-development-smoke/**/skill-package.txt
-            /tmp/android-development-smoke/**/logs/*.log
+            ${{ env.RUN_ROOT }}/summary.tsv
+            ${{ env.RUN_ROOT }}/skill-package.txt
+            ${{ env.RUN_ROOT }}/logs/*.log
+            ${{ env.RUN_ROOT }}/report/**
