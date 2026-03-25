@@ -6,8 +6,25 @@ on:
     - cron: '0 6 * * 1'
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      has_token: ${{ steps.check.outputs.has_token }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          if [ -n "$GH_TOKEN" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "COPILOT_GITHUB_TOKEN is not set; skipping android-development smoke." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   smoke:
-    if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+    needs: preflight
+    if: ${{ needs.preflight.outputs.has_token == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
