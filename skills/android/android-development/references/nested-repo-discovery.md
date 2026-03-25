@@ -1,10 +1,10 @@
 # Nested Android Repo Discovery
 
-Use this file when the repository is a sample catalog, monorepo, or otherwise contains multiple Android project roots.
+Use this file when the repository contains multiple Android project roots.
 
 ## Goal
 
-Find the smallest Android project root that actually owns the task you need.
+Find the smallest Android project root that actually owns the task.
 
 Prefer the nearest directory that contains both:
 
@@ -13,7 +13,7 @@ Prefer the nearest directory that contains both:
 
 ## Cheap Discovery Order
 
-Start with file and structure inspection before broad Gradle commands:
+Start with file inspection before Gradle commands:
 
 ```bash
 find . -maxdepth 4 \( -name gradlew -o -name settings.gradle -o -name settings.gradle.kts \)
@@ -55,4 +55,4 @@ When acting in a nested repo, always report:
 
 ## Cost Warning
 
-Even wrapper inspection can download Gradle on a fresh clone, and some task inspection commands can trigger dependency resolution. Prefer file reads first.
+Even wrapper inspection can download Gradle on a fresh clone. Prefer file reads first.

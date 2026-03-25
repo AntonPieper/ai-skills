@@ -1,8 +1,8 @@
 # On-Device Interaction And Visual Testing
 
-Use this file for adb-driven app interaction, screenshots, hierarchy dumps, and small evidence bundles.
+Use this file for adb-driven app interaction, screenshot-first UI triage, hierarchy dumps, and small evidence bundles.
 
-Default order for UI triage:
+Default order:
 
 1. reduced screenshot
 2. targeted hierarchy search only if the screenshot is not enough
@@ -39,7 +39,7 @@ adb -s <serial> exec-out screencap -p > screen.png
 sips -Z 512 screen.png --out screen-512.png
 ```
 
-Open the reduced copy first. Keep the original only if you later need to zoom further.
+Open the reduced copy first. Keep the original only if you later need more detail.
 
 Use the hierarchy dump to find controls:
 
@@ -51,7 +51,7 @@ adb -s <serial> shell rm /sdcard/window_dump.xml
 
 Hierarchy dumps can miss video, camera, games, or other GPU-heavy surfaces.
 
-Do not read the entire dump by default. Search first, then inspect only the local region you need:
+Do not read the full dump by default. Search first, then inspect only the local region you need:
 
 ```bash
 wc -c window_dump.xml
@@ -59,7 +59,7 @@ rg -n 'text="Settings"|resource-id="com.example:id/login"|content-desc="Open nav
 sed -n '120,170p' window_dump.xml
 ```
 
-If the first search misses, refine the search term or take a fresh screenshot before reading broader XML slices.
+If the first search misses, refine the term or take a fresh screenshot before reading broader XML slices.
 
 ## Bounded Diagnostics
 
@@ -82,7 +82,7 @@ When the package is known, prefer `--pid` over broad `grep` filtering.
 
 ## Small Evidence Bundle
 
-Default bundle for a UI issue:
+Default bundle:
 
 1. one screenshot
 2. one hierarchy dump
@@ -110,7 +110,7 @@ For video, keep it short and reduce both resolution and frame rate by default:
 ffmpeg -y -i demo.mp4 -vf scale=512:512:force_original_aspect_ratio=decrease -r 10 -an -c:v libx264 -preset veryfast -crf 32 demo-512p.mp4
 ```
 
-Only rerender at a larger target if the reduced capture loses needed detail.
+Only rerender at a larger size if the reduced capture loses needed detail.
 
 ## Optional Video
 

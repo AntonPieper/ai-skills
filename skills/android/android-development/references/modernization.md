@@ -6,11 +6,11 @@ Use this file when the project builds poorly because the build system is old, or
 
 Use current stable upstream releases unless the repo has a clear compatibility reason not to.
 
-Prefer replacing the wrapper and plugin versions with standard upstream releases instead of maintaining bespoke compatibility hacks.
+Prefer replacing wrapper and plugin versions with standard upstream releases instead of compatibility hacks.
 
 ## Detect First
 
-Search for common legacy signals before editing:
+Search for legacy signals before editing:
 
 - `buildscript {}` plus `apply plugin:`
 - `jcenter()`
@@ -28,7 +28,7 @@ Also inspect version-catalog-based repos directly:
 - plugin aliases in `build.gradle(.kts)`
 - version catalog references in `settings.gradle(.kts)`
 
-Legacy but still-building patterns matter too. Do not wait for a hard deprecation error before flagging them.
+Legacy but still-building patterns matter too.
 
 ## Preferred Replacements
 
@@ -43,7 +43,7 @@ Legacy but still-building patterns matter too. Do not wait for a hard deprecatio
 
 ## Replacement Order
 
-Prefer changing one source of truth at a time:
+Change one source of truth at a time:
 
 1. identify where the wrapper version lives
 2. identify where plugin versions live

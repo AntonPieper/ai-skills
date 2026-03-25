@@ -3,8 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-SKILL_DIR="$REPO_DIR/android-development"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SKILL_DIR="${SKILL_DIR:-$REPO_DIR/skills/android/android-development}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ROOT="${RUN_ROOT:-${TMPDIR:-/tmp}/android-development-smoke/$TIMESTAMP}"
 REPOS_DIR="$RUN_ROOT/repos"
@@ -100,6 +100,7 @@ Work read-only.
 Identify the smallest standard Gradle commands for build, lint, unit tests, and connected tests for this repository.
 Constraints:
 - Inspect only `settings.gradle*`, the nearest module build file, and at most one targeted wrapper help command.
+- Stop after those reads even if the repository has more modules.
 - Do not use `tasks --all`, recursive search, or expensive Gradle lifecycle tasks.
 - Keep shell output bounded.
 Keep the answer under 14 lines.
@@ -111,7 +112,7 @@ Work read-only.
 
 Decide whether this repository should trigger modernization guidance.
 Constraints:
-- Search only Gradle-related files: `*.gradle`, `*.gradle.kts`, `gradle.properties`, and `gradle/wrapper/gradle-wrapper.properties`.
+- Inspect only the wrapper properties, the top-level `settings.gradle*`, the top-level build file, and at most one module build file if needed.
 - Stop after 4 concrete legacy findings.
 - Do not scan source trees or README files unless a Gradle file points you there.
 List the concrete legacy signals you found and finish with the first safe next step. Keep the answer under 14 lines.

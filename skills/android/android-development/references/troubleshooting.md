@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Use this file as a symptom router. If a fix needs more than a few commands, switch to the dedicated reference instead of expanding here.
+Use this file as a symptom router. If a fix needs more than a few commands, switch to the dedicated reference.
 
 ## Missing SDK Or Command-Line Tools
 

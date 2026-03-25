@@ -4,7 +4,7 @@ Use this file on fresh machines, fresh clones, or when the Android toolchain is 
 
 ## Discover First
 
-Run the smallest environment discovery set before installing anything:
+Run the smallest discovery set before installing anything:
 
 ```bash
 java -version
@@ -22,7 +22,7 @@ If `./gradlew` exists at the chosen root, prefer it over global `gradle`.
 
 ## Required Programs
 
-Prefer these standard tools:
+Required tools:
 
 - JDK
 - Android SDK Command-Line Tools
@@ -30,7 +30,7 @@ Prefer these standard tools:
 - Android Emulator and system images if emulator work is needed
 - project Gradle wrapper
 
-For portable installs, use the OS package manager or the official Android downloads, then verify with the discovery commands above.
+Use the OS package manager or official Android downloads, then verify with the discovery commands above.
 
 ## SDK Layout
 
@@ -52,7 +52,7 @@ List stable packages:
 sdkmanager --list
 ```
 
-Install only the packages you actually need:
+Install only what you need:
 
 ```bash
 sdkmanager "platform-tools" "emulator"
@@ -84,7 +84,7 @@ If the project needs a different JDK, switch the shell or Gradle runtime to a co
 
 ## Tool Discovery Shortcuts
 
-Use these commands when you need quick facts instead of file spelunking:
+Use these commands for quick facts:
 
 ```bash
 ./gradlew help --task lint

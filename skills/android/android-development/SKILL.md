@@ -1,11 +1,11 @@
 ---
 name: android-development
-description: Token-efficient Android CLI workflow for setup, build, testing, device control, visual checks, and modernization.
+description: Token-efficient Android CLI workflow for setup, validation, device work, visual checks, and modernization.
 ---
 
 # Android Development
 
-Keep context small. Read only the next file, command output, screenshot, or XML slice needed to answer the task. When Android or Copilot tool behavior is unclear, prefer official docs through GitHub Docs, Context7, web tools, browser tools, or GitHub MCP before assuming.
+Keep context small. Read only the next file, command output, screenshot, or XML slice you need. If Android or Copilot behavior is unclear, check official docs first with GitHub Docs, Context7, web tools, browser tools, or GitHub MCP.
 
 ## Use It When
 
@@ -53,7 +53,7 @@ Open only the next reference you need:
 - `references/nested-repo-discovery.md` for sample catalogs, monorepos, nested wrappers, and choosing the right Android project root.
 - `references/build-lint-test.md` for wrapper tasks, lint, unit tests, instrumentation tests, and report locations.
 - `references/device-emulator-control.md` for device discovery, AVD creation, emulator lifecycle, and boot readiness.
-- `references/on-device-interaction-visual-testing.md` for adb interaction, screenshots, hierarchy dumps, bounded log capture, and token-efficient evidence.
+- `references/on-device-interaction-visual-testing.md` for adb interaction, screenshot-first UI triage, hierarchy dumps, and bounded logs.
 - `references/modernization.md` for legacy Gradle or Android build logic, wrapper or AGP replacement, and best-practice upgrades.
 - `references/troubleshooting.md` for a short symptom router.
 

@@ -1,56 +1,74 @@
-# android-development skill
+# ai-skills
 
-This repository contains one installable skill:
+Monorepo for installable Copilot skills.
 
-- `android-development/`
-
-Only files under that directory are part of the installed skill payload. Development notes and validation tooling live outside that directory so they are not installed for skill users.
+`npx skills add` discovers skills recursively from the repository root by `SKILL.md` plus frontmatter `name`, so skills can live at any depth.
 
 ## Install
 
-Global install for GitHub Copilot:
+Install from GitHub by skill name:
 
 ```bash
-npx skills add /absolute/path/to/android-development -g -a github-copilot -y
+npx skills add AntonPieper/ai-skills --skill android-development
 ```
 
-Project install for GitHub Copilot:
+List all skills in the repository:
 
 ```bash
-cd /path/to/repo
-npx skills add /absolute/path/to/android-development -a github-copilot -y
+npx skills add AntonPieper/ai-skills --list
 ```
 
-List the skill without installing:
+Install from a local clone:
 
 ```bash
-npx skills add /absolute/path/to/android-development --list
+npx skills add "$PWD" --skill android-development -g -a github-copilot -y
 ```
+
+List from a local clone:
+
+```bash
+npx skills add "$PWD" --list
+```
+
+## Layout
+
+```text
+skills/
+  android/
+    android-development/
+      SKILL.md
+      references/
+validation/
+  android-development/
+    smoke.sh
+scripts/
+  validate-skills-catalog.sh
+```
+
+Rules:
+
+- Only files under `skills/.../<skill>/` are installable payload.
+- Keep validation, smoke tests, and contributor docs outside `skills/`.
+- Group skills by topic or platform, but keep each leaf skill directory named after the skill when practical.
 
 ## Validation
 
-Skill package smoke test:
+Catalog validation:
 
 ```bash
-npx skills add /absolute/path/to/android-development --list
+./scripts/validate-skills-catalog.sh
 ```
 
-Local Copilot CLI single prompt:
+android-development smoke matrix:
 
 ```bash
-copilot --model gpt-5-mini --reasoning-effort low -p "Use the android-development skill. Show the smallest standard commands to discover the Android toolchain and project wrapper tasks." --allow-all-tools --allow-all-paths --allow-all-urls --no-ask-user --add-dir /absolute/path/to/android-development
+./validation/android-development/smoke.sh
 ```
 
-Smoke matrix with bounded timeouts, parallel runs, per-agent logs, and usage summaries:
+Useful overrides:
 
 ```bash
-./scripts/smoke-test-android-development.sh
-```
-
-Useful environment overrides:
-
-```bash
-JOBS=2 TIMEOUT_SECONDS=240 ./scripts/smoke-test-android-development.sh
-REPOS=termux,aegis SCENARIOS=discovery,modernization ./scripts/smoke-test-android-development.sh
-RUN_ROOT="$PWD/tmp/android-smoke" ./scripts/smoke-test-android-development.sh
+JOBS=2 TIMEOUT_SECONDS=240 ./validation/android-development/smoke.sh
+REPOS=termux,cleanarchitecture SCENARIOS=discovery,modernization ./validation/android-development/smoke.sh
+RUN_ROOT="$PWD/tmp/android-smoke" ./validation/android-development/smoke.sh
 ```
