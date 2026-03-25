@@ -17,11 +17,14 @@ jobs:
           node-version: '22'
 
       - name: Validate skills catalog
-        run: ./scripts/validate-skills-catalog.sh
+        run: |
+          ./scripts/validate-skills-catalog.sh
+          ./scripts/validate-validation-assets.sh
 
       - name: Syntax check validation scripts
         run: |
           bash -n scripts/validate-skills-catalog.sh
+          bash -n scripts/validate-validation-assets.sh
           bash -n validation/android-development/smoke.sh
 
       - name: Lint Markdown

@@ -1,0 +1,38 @@
+{
+  "skill_name": "android-development",
+  "evals": [
+    {
+      "id": "fresh-clone-root-discovery",
+      "prompt": "I just cloned an unfamiliar Android repository. Find the smallest real Android project root and tell me the next standard command you would run without kicking off a full build.",
+      "expected_output": "The answer identifies one concrete Android project root, explains why it is the right root, and proposes a small read-only wrapper inspection command from that root.",
+      "assertions": [
+        "The answer identifies one exact Android project root",
+        "The answer prefers file inspection before broad Gradle inspection",
+        "The answer recommends a small next command rather than a full build or tasks --all",
+        "The answer stays read-only"
+      ]
+    },
+    {
+      "id": "legacy-build-modernization-triage",
+      "prompt": "This Android app still uses jcenter(), apply plugin, and an old wrapper. Decide whether it needs modernization guidance and outline the first safe upgrade step.",
+      "expected_output": "The answer states that modernization guidance applies, names concrete legacy signals, and starts with source-of-truth and compatibility inspection rather than an unsafe version jump.",
+      "assertions": [
+        "The answer identifies modernization triggers from the prompt or inspected build files",
+        "The answer treats compatibility as a Gradle, AGP, Kotlin, and JDK question rather than a single version bump",
+        "The answer proposes a first safe inspection step before editing",
+        "The answer avoids prescribing arbitrary version numbers without context"
+      ]
+    },
+    {
+      "id": "screenshot-first-ui-triage",
+      "prompt": "An Android screen looks wrong on device. Give me the smallest adb-driven UI triage plan that keeps token usage down and only reads hierarchy XML or logcat if the screenshot is not enough.",
+      "expected_output": "The answer makes a reduced screenshot the default, explains when hierarchy XML is actually needed, and keeps diagnostics bounded.",
+      "assertions": [
+        "The plan starts with a screenshot capture and reduced copy",
+        "The plan treats hierarchy XML as conditional rather than mandatory",
+        "The plan avoids reading the full XML dump by default",
+        "The plan keeps logcat bounded instead of streaming indefinitely"
+      ]
+    }
+  ]
+}

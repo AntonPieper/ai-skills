@@ -51,12 +51,20 @@ Rules:
 - Keep validation, smoke tests, and contributor docs outside `skills/`.
 - Group skills by topic or platform, but keep each leaf skill directory named after the skill when practical.
 
+Authoring guidance:
+
+- Write `description` in imperative trigger form: tell the agent when to use the skill, using user intent rather than internal implementation details.
+- Keep `SKILL.md` focused on the reusable workflow and move heavier detail to targeted reference files.
+- Prefer defaults and small, task-scoped procedures over menus of equal options.
+- Keep evals and trigger-query sets under `validation/<skill>/evals/` so they do not ship as installable payload.
+
 ## Validation
 
 Catalog validation:
 
 ```bash
 ./scripts/validate-skills-catalog.sh
+./scripts/validate-validation-assets.sh
 ```
 
 android-development smoke matrix:
@@ -72,3 +80,8 @@ JOBS=2 TIMEOUT_SECONDS=240 ./validation/android-development/smoke.sh
 REPOS=termux,cleanarchitecture SCENARIOS=discovery,modernization ./validation/android-development/smoke.sh
 RUN_ROOT="$PWD/tmp/android-smoke" ./validation/android-development/smoke.sh
 ```
+
+Skill eval assets for `android-development` live in `validation/android-development/evals/`:
+
+- `evals.json` for output-quality eval cases and assertions.
+- `trigger-queries.train.json` and `trigger-queries.validation.json` for description-trigger tuning.

@@ -23,6 +23,24 @@ extract_skill_name() {
   ' "$1"
 }
 
+extract_skill_description() {
+  awk '
+    BEGIN { in_frontmatter = 0 }
+    /^---$/ {
+      if (in_frontmatter == 0) {
+        in_frontmatter = 1
+        next
+      }
+      exit
+    }
+    in_frontmatter == 1 && $1 == "description:" {
+      sub(/^description:[[:space:]]*/, "")
+      print
+      exit
+    }
+  ' "$1"
+}
+
 skill_files=()
 while IFS= read -r skill_file; do
   skill_files+=("$skill_file")
@@ -45,9 +63,20 @@ root_list_output="$(cd "$REPO_DIR" && npx -y skills add "$REPO_DIR" --list)"
 for skill_file in "${skill_files[@]}"; do
   skill_dir="$(dirname "$skill_file")"
   skill_name="$(extract_skill_name "$skill_file")"
+  skill_description="$(extract_skill_description "$skill_file")"
 
   if [ -z "$skill_name" ]; then
     echo "Missing skill name in $skill_file" >&2
+    exit 1
+  fi
+
+  if [ -z "$skill_description" ]; then
+    echo "Missing single-line skill description in $skill_file" >&2
+    exit 1
+  fi
+
+  if [ "${#skill_description}" -gt 1024 ]; then
+    echo "Skill description exceeds 1024 characters in $skill_file" >&2
     exit 1
   fi
 
@@ -69,6 +98,14 @@ for skill_file in "${skill_files[@]}"; do
     echo "Direct skill listing failed for $skill_name at $skill_dir" >&2
     exit 1
   fi
+
+  while IFS= read -r relative_reference; do
+    [ -n "$relative_reference" ] || continue
+    if [ ! -f "$skill_dir/$relative_reference" ]; then
+      echo "Missing referenced file '$relative_reference' from $skill_file" >&2
+      exit 1
+    fi
+  done < <(rg -o 'references/[A-Za-z0-9._/-]+\.md' "$skill_file" | sort -u)
 
   temp_home="$(mktemp -d)"
   temp_cache="$temp_home/.npm"
