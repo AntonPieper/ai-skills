@@ -114,9 +114,9 @@ append_command "./gradlew :$FIXTURE_MODULE:tasks --all --console=plain"
   ./gradlew ":$FIXTURE_MODULE:tasks" --all --console=plain
 ) | tee "$TASKS_FILE"
 
-ASSEMBLE_TASK="$(pick_task "$TASKS_FILE" 'assembleMockDebug' 'assembleProdDebug' 'assemble[A-Za-z0-9]+Debug')"
-UNIT_TEST_TASK="$(pick_task "$TASKS_FILE" 'testMockDebugUnitTest' 'testProdDebugUnitTest' 'test[A-Za-z0-9]+UnitTest')"
-CONNECTED_TASK="$(pick_task "$TASKS_FILE" 'connectedMockDebugAndroidTest' 'connectedProdDebugAndroidTest' 'connected[A-Za-z0-9]+AndroidTest')"
+ASSEMBLE_TASK="$(pick_task "$TASKS_FILE" 'assembleDebug' 'assembleMockDebug' 'assembleProdDebug' 'assemble[A-Za-z0-9]+Debug')"
+UNIT_TEST_TASK="$(pick_task "$TASKS_FILE" 'testDebugUnitTest' 'testMockDebugUnitTest' 'testProdDebugUnitTest' 'test[A-Za-z0-9]+UnitTest')"
+CONNECTED_TASK="$(pick_task "$TASKS_FILE" 'connectedDebugAndroidTest' 'connectedMockDebugAndroidTest' 'connectedProdDebugAndroidTest' 'connected[A-Za-z0-9]+AndroidTest')"
 
 if [ -z "$ASSEMBLE_TASK" ] || [ -z "$UNIT_TEST_TASK" ]; then
   echo "Unable to discover required Gradle tasks" >&2
