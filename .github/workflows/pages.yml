@@ -8,11 +8,15 @@ on:
     branches:
       - main
     paths:
+      - package.json
+      - package-lock.json
       - site/**
       - scripts/build-pages-site.mjs
+      - scripts/process-android-tooling-artifacts.mjs
       - skills/android/android-development/**
       - validation/android-development/evals/**
       - validation/android-development/site-showcase.sh
+      - validation/android-development/tooling-smoke.sh
       - README.md
       - .github/workflows/android-development-smoke.yml
       - .github/workflows/pages.yml
@@ -30,17 +34,18 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: '22'
 
       - name: Configure Pages
-        uses: actions/configure-pages@v6.0.0
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
 
       - name: Build site bundle
         run: |
@@ -50,14 +55,18 @@ jobs:
             "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/latest.json"
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4.0.0
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
         with:
           path: ./dist/site
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5.0.0
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128

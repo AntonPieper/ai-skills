@@ -6,11 +6,19 @@ env:
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       has_token: ${{ steps.check.outputs.has_token }}
     steps:
@@ -29,8 +37,7 @@ jobs:
     needs: preflight
     if: ${{ needs.preflight.outputs.has_token == 'true' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 75
     env:
       GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
       REPOS: termux,cleanarchitecture
@@ -40,16 +47,49 @@ jobs:
       TIMEOUT_SECONDS: '240'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: '22'
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@651bceb6f9ca583f16b8d75b62c36ded2ae6fc9c
+        with:
+          packages: ''
+
+      - name: Install Android build tools
+        run: sdkmanager "platforms;android-35" "build-tools;36.0.0"
+
+      - name: Install media tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Enable KVM permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
 
       - name: Configure Pages
-        if: always()
-        uses: actions/configure-pages@v6.0.0
+        if: ${{ !cancelled() }}
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
 
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
@@ -58,15 +98,37 @@ jobs:
         run: ./validation/android-development/smoke.sh
 
       - name: Acquire site showcase data
-        if: always()
+        if: ${{ !cancelled() }}
         run: ./validation/android-development/site-showcase.sh
 
+      - name: Run emulator-backed tooling smoke
+        if: ${{ !cancelled() }}
+        uses: ReactiveCircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_7_pro
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash ./validation/android-development/tooling-smoke.sh
+
+      - name: Process tooling artifacts
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f "$RUN_ROOT/tooling/metadata.env" ]; then
+            node ./scripts/process-android-tooling-artifacts.mjs "$RUN_ROOT"
+          else
+            echo "No tooling metadata present; skipping media processing."
+          fi
+
       - name: Render smoke report
-        if: always()
+        if: ${{ !cancelled() }}
         run: node ./scripts/render-android-smoke-report.mjs "$RUN_ROOT"
 
       - name: Build Pages site bundle
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           node ./scripts/build-pages-site.mjs \
             "$RUN_ROOT/site-dist" \
@@ -74,8 +136,8 @@ jobs:
             "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/latest.json"
 
       - name: Upload smoke summary
-        if: always()
-        uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: android-development-smoke
           path: |
@@ -83,12 +145,13 @@ jobs:
             ${{ env.RUN_ROOT }}/skill-package.txt
             ${{ env.RUN_ROOT }}/logs/*.log
             ${{ env.RUN_ROOT }}/showcase/**
+            ${{ env.RUN_ROOT }}/tooling/**
             ${{ env.RUN_ROOT }}/report/**
             ${{ env.RUN_ROOT }}/site-dist/**
 
       - name: Upload Pages artifact
-        if: always()
-        uses: actions/upload-pages-artifact@v4.0.0
+        if: ${{ !cancelled() }}
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
         with:
           path: ${{ env.RUN_ROOT }}/site-dist
 
@@ -96,12 +159,16 @@ jobs:
     needs:
       - preflight
       - smoke
-    if: ${{ always() && needs.preflight.outputs.has_token == 'true' }}
+    if: ${{ needs.preflight.outputs.has_token == 'true' && needs.smoke.result == 'success' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5.0.0
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128

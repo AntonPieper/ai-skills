@@ -10,14 +10,19 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
         with:
           node-version: '22'
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
 
       - name: Validate skills catalog
         run: |
@@ -29,15 +34,17 @@ jobs:
           bash -n scripts/validate-skills-catalog.sh
           bash -n scripts/validate-validation-assets.sh
           bash -n validation/android-development/site-showcase.sh
+          bash -n validation/android-development/tooling-smoke.sh
           node --check scripts/render-android-smoke-report.mjs
           node --check scripts/build-pages-site.mjs
+          node --check scripts/process-android-tooling-artifacts.mjs
           bash -n validation/android-development/smoke.sh
 
       - name: Build Pages site
         run: node ./scripts/build-pages-site.mjs "$RUNNER_TEMP/site-build"
 
       - name: Lint Markdown
-        uses: DavidAnson/markdownlint-cli2-action@v22
+        uses: DavidAnson/markdownlint-cli2-action@07035fd053f7be764496c0f8d8f9f41f98305101
         with:
           globs: |
             **/*.md
