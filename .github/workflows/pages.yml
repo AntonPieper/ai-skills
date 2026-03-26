@@ -14,8 +14,8 @@ on:
       - scripts/build-pages-site.mjs
       - scripts/process-android-scenario-artifacts.mjs
       - skills/android/android-development/**
-      - validation/android-development/evals/**
       - validation/android-development/smoke.sh
+      - Makefile
       - README.md
       - .github/workflows/android-development-smoke.yml
       - .github/workflows/pages.yml
@@ -47,11 +47,7 @@ jobs:
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
 
       - name: Build site bundle
-        run: |
-          node ./scripts/build-pages-site.mjs \
-            ./dist/site \
-            "" \
-            "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/latest.json"
+        run: make build-site-published LIVE_DATA_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/latest.json"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b

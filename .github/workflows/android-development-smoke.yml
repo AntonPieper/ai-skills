@@ -64,9 +64,6 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
 
-      - name: Install workspace dependencies
-        run: npm ci
-
       - name: Set up Android SDK tools
         uses: android-actions/setup-android@651bceb6f9ca583f16b8d75b62c36ded2ae6fc9c
 
@@ -80,16 +77,8 @@ jobs:
             "build-tools;36.0.0" \
             "system-images;android-35;default;x86_64"
 
-      - name: Verify Android toolchain
-        run: |
-          sdkmanager --list_installed | grep -E 'platform-tools|emulator|platforms;android-35|build-tools;36.0.0|system-images;android-35;default;x86_64'
-          adb version
-          emulator -version | head -n 1
-
       - name: Install media tooling
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Enable KVM permissions
         run: |
@@ -104,7 +93,7 @@ jobs:
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: Run scenario-based Android validation
+      - name: Run scenarios with emulator
         if: ${{ !cancelled() }}
         uses: ReactiveCircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a
         with:
@@ -115,11 +104,7 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash ./validation/android-development/smoke.sh
-
-      - name: Build Pages site bundle
-        if: ${{ !cancelled() }}
-        run: node ./scripts/build-pages-site.mjs "$RUN_ROOT/site-dist" "$RUN_ROOT"
+          script: make ci-smoke
 
       - name: Upload scenario summary
         if: ${{ !cancelled() }}
