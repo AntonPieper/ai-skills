@@ -95,13 +95,15 @@ Required outputs:
 - Write JSON to $result_json
 - Write Markdown to $report_md
 - If you capture raw screenshots or recordings, store them in $raw_dir
+- After capturing any media, run: node $media_processor "$scenario_dir"
 
 Task:
 1. Find the real Android project root.
 2. Identify the smallest reliable Gradle commands for build, unit tests, and connected tests.
 3. Actually run those commands. If no connected test task exists, record a warning and explain what was verified instead.
-4. Do not edit the repository under test.
-5. Summarize what succeeded, what was skipped, and the exact commands that grounded the result.
+4. If an emulator is running and the build succeeded, install the app and capture at least one screenshot showing the app launched.
+5. Do not edit the repository under test.
+6. Summarize what succeeded, what was skipped, and the exact commands that grounded the result.
 
 Write JSON with this exact top-level shape:
 {
@@ -144,7 +146,7 @@ Write Markdown with these sections in order:
 - ## Checks
 - ## Findings
 
-Keep both files concise and evidence-based.
+Keep both files concise and evidence-based. If media was captured, embed it with relative links under ./media.
 EOF
       ;;
     interaction-architecture-create-task)
@@ -389,7 +391,7 @@ EOF
       ;;
     modernization-cleanarchitecture)
       cat <<EOF
-Run a modernization triage scenario using the android-development skill.
+Run a modernization triage and build scenario using the android-development skill.
 
 Repository root: $repo_dir
 Repository label: $repo_label
@@ -399,13 +401,17 @@ Module hint: $module_hint
 Required outputs:
 - Write JSON to $result_json
 - Write Markdown to $report_md
+- Save raw screenshots in $raw_dir if an emulator is available
+- After capturing media, run: node $media_processor "$scenario_dir"
 
 Task:
 1. Find the real Android project root.
-2. Ground the environment with the smallest useful wrapper command such as ./gradlew --version or ./gradlew help.
+2. Run ./gradlew --version to ground the wrapper and JDK environment.
 3. Inspect only the Gradle and Android build files you need to identify the most concrete modernization signals.
-4. Do not edit files and do not recommend blind version bumps.
-5. Finish with the first safe modernization step.
+4. Attempt ./gradlew assembleDebug (or the closest available debug build task). Record whether it succeeds or fails and use the output to ground your triage.
+5. If an emulator is running and the build succeeds, install the app and capture at least one screenshot showing the app launched.
+6. Do not edit files and do not recommend blind version bumps.
+7. Identify the first safe modernization step based on what you observed.
 
 Use this exact JSON shape:
 {
@@ -448,6 +454,8 @@ Write Markdown with these sections in order:
 - ## Commands
 - ## Findings
 - ## First safe next step
+
+If media was captured, embed it with relative links under ./media.
 EOF
       ;;
     *)
