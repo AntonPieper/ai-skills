@@ -63,6 +63,8 @@ async function createStillVariants(inputPath) {
   const primaryPath = path.join(processedDir, 'screen-primary.webp');
   const detailPath = path.join(processedDir, 'screen-detail.webp');
   const posterPath = path.join(processedDir, 'screen-poster.webp');
+  const storyPath = path.join(processedDir, 'screen-story.webp');
+  const widePath = path.join(processedDir, 'screen-wide.webp');
   const metadata = await sharp(inputPath).metadata();
 
   await Promise.all([
@@ -78,6 +80,14 @@ async function createStillVariants(inputPath) {
       .resize({ width: 1440, height: 900, fit: sharp.fit.cover, position: sharp.strategy.attention })
       .webp({ quality: 80 })
       .toFile(posterPath),
+    sharp(inputPath)
+      .resize({ width: 900, height: 1400, fit: sharp.fit.cover, position: sharp.strategy.attention })
+      .webp({ quality: 80 })
+      .toFile(storyPath),
+    sharp(inputPath)
+      .resize({ width: 1600, height: 900, fit: sharp.fit.cover, position: sharp.strategy.entropy })
+      .webp({ quality: 80 })
+      .toFile(widePath),
   ]);
 
   return {
@@ -85,6 +95,8 @@ async function createStillVariants(inputPath) {
     primaryPath,
     detailPath,
     posterPath,
+    storyPath,
+    widePath,
   };
 }
 
@@ -181,6 +193,8 @@ const media = {
   primary: toRelative(stills.primaryPath),
   detail: toRelative(stills.detailPath),
   poster: toRelative(stills.posterPath),
+  story: toRelative(stills.storyPath),
+  wide: toRelative(stills.widePath),
   video: null,
   videoPoster: null,
 };

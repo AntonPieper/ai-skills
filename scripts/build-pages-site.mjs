@@ -267,6 +267,7 @@ async function loadShowcase(runRoot) {
         highlights: Array.isArray(parsed.highlights) ? parsed.highlights.slice(0, 4) : [],
         commands: Array.isArray(parsed.commands) ? parsed.commands.slice(0, 4) : [],
         quote: parsed.quote || '',
+        starter_prompt: parsed.starter_prompt || '',
       });
     } catch {
       // ignore malformed output and continue with the rest of the showcase set

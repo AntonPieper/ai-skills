@@ -15,7 +15,7 @@ COPILOT_LOG_DIR="$RUN_ROOT/copilot-internal-logs"
 SUMMARY_TSV="$RUN_ROOT/summary.tsv"
 SKILL_LIST_FILE="$RUN_ROOT/skill-package.txt"
 
-MODEL="${MODEL:-gpt-5-mini}"
+MODEL="${MODEL:-gpt-5.4-mini}"
 REASONING_EFFORT="${REASONING_EFFORT:-low}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-420}"
 JOBS="${JOBS:-3}"
@@ -84,6 +84,9 @@ scenario_prompt() {
       cat <<'EOF'
 Work read-only.
 
+Allowed actions: small file reads, targeted wrapper inspection, and bounded shell commands only.
+Never edit files, install packages, write artifacts, or run build, lint, or test tasks.
+
 Find the smallest Android project root for this repository and the smallest standard wrapper-inspection commands you would run next.
 Constraints:
     - Start with `find . -maxdepth 4` for `gradlew` and `settings.gradle*`.
@@ -98,6 +101,9 @@ EOF
       cat <<'EOF'
 Work read-only.
 
+Allowed actions: small file reads and at most one targeted wrapper help command.
+Never edit files, install packages, or run build, lint, unit test, or connected test tasks.
+
 Identify the smallest standard Gradle commands for build, lint, unit tests, and connected tests for this repository.
 Constraints:
 - Inspect only `settings.gradle*`, the nearest module build file, and at most one targeted wrapper help command.
@@ -111,6 +117,9 @@ EOF
       cat <<'EOF'
 Work read-only.
 
+Allowed actions: inspect a few Gradle files and wrapper metadata only.
+Never edit files, install packages, or run project tasks.
+
 Decide whether this repository should trigger modernization guidance.
 Constraints:
 - Inspect only the wrapper properties, the top-level `settings.gradle*`, the top-level build file, and at most one module build file if needed.
@@ -122,6 +131,9 @@ EOF
     ui-triage)
       cat <<'EOF'
 Work read-only.
+
+Allowed actions: answer from repository structure and Android workflow knowledge only.
+Never edit files, install packages, or run the app.
 
 Describe the smallest on-device UI triage plan for this repository that minimizes token use. Make screenshot-first the default, explain when hierarchy XML is actually needed, and state how to avoid dumping full XML or unbounded logcat into context. Keep the answer under 12 lines.
 EOF
@@ -187,7 +199,8 @@ run_case() {
   local exit_code
 
   {
-    printf 'Use the android-development skill at %s. If the skill is not installed, read %s directly and use progressive disclosure across the references directory.\n\n' "$SKILL_DIR" "$SKILL_DIR/SKILL.md"
+    printf 'Use the android-development skill at %s. If the skill is not installed, read %s directly and use progressive disclosure across the references directory.\n' "$SKILL_DIR" "$SKILL_DIR/SKILL.md"
+    printf 'Use only read-only operations: bounded shell inspection, targeted file reads, and cheap wrapper help commands when explicitly allowed. Do not edit files, install packages, or write new artifacts.\n\n'
     printf 'Repository root: %s\n\n' "$repo_dir"
     scenario_prompt "$scenario"
   } > "$prompt_file"

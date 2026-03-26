@@ -13,7 +13,7 @@ RAW_DIR="$SHOWCASE_DIR/raw"
 STATUS_TSV="$SHOWCASE_DIR/status.tsv"
 COPILOT_LOG_DIR="$RUN_ROOT/copilot-internal-logs"
 
-MODEL="${MODEL:-gpt-5-mini}"
+MODEL="${MODEL:-gpt-5.4-mini}"
 REASONING_EFFORT="${REASONING_EFFORT:-low}"
 STREAM_MODE="${STREAM_MODE:-on}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-240}"
@@ -70,15 +70,17 @@ Return JSON only with this exact shape:
   "repo_label": "termux",
   "repo_url": "https://github.com/termux/termux-app",
   "headline": "short headline",
-  "summary": "1-2 sentence summary",
+  "summary": "1-2 short sentences in simple language",
   "highlights": ["3 concise bullets"],
   "commands": ["up to 4 exact shell commands"],
-  "quote": "one short sentence that captures the key judgment"
+  "quote": "one short sentence that captures the key judgment",
+  "starter_prompt": "one plain-language prompt a user can paste into Copilot"
 }
 Constraints:
 - Start with a shallow root search.
 - Do not run builds or tests.
 - Keep commands concrete and cheap.
+- Use simple language for non-developers.
 EOF
       ;;
     tasks)
@@ -93,15 +95,17 @@ Return JSON only with this exact shape:
   "repo_label": "cleanarchitecture",
   "repo_url": "https://github.com/android10/Android-CleanArchitecture",
   "headline": "short headline",
-  "summary": "1-2 sentence summary",
+  "summary": "1-2 short sentences in simple language",
   "highlights": ["3 concise bullets"],
   "commands": ["up to 4 exact shell commands"],
-  "quote": "one short sentence that captures the key judgment"
+  "quote": "one short sentence that captures the key judgment",
+  "starter_prompt": "one plain-language prompt a user can paste into Copilot"
 }
 Constraints:
 - Inspect only the smallest files needed.
 - Do not use broad task listings.
 - Keep the commands runnable and specific.
+- Use simple language for non-developers.
 EOF
       ;;
     modernization)
@@ -116,15 +120,17 @@ Return JSON only with this exact shape:
   "repo_label": "pockethub",
   "repo_url": "https://github.com/pockethub/PocketHub",
   "headline": "short headline",
-  "summary": "1-2 sentence summary",
+  "summary": "1-2 short sentences in simple language",
   "highlights": ["3 concise bullets"],
   "commands": ["up to 4 exact shell commands"],
-  "quote": "one short sentence that captures the key judgment"
+  "quote": "one short sentence that captures the key judgment",
+  "starter_prompt": "one plain-language prompt a user can paste into Copilot"
 }
 Constraints:
 - Base the answer on concrete legacy signals.
 - Stop after the first safe next step.
 - Do not propose a blind version bump.
+- Use simple language for non-developers.
 EOF
       ;;
     ui-triage)
@@ -139,15 +145,17 @@ Return JSON only with this exact shape:
   "repo_label": "aegis",
   "repo_url": "https://github.com/beemdevelopment/Aegis",
   "headline": "short headline",
-  "summary": "1-2 sentence summary",
+  "summary": "1-2 short sentences in simple language",
   "highlights": ["3 concise bullets"],
   "commands": ["up to 4 exact shell commands"],
-  "quote": "one short sentence that captures the key judgment"
+  "quote": "one short sentence that captures the key judgment",
+  "starter_prompt": "one plain-language prompt a user can paste into Copilot"
 }
 Constraints:
 - Make screenshot-first the default.
 - Only mention XML when it is actually justified.
 - Keep evidence bounded and reproducible.
+- Use simple language for non-developers.
 EOF
       ;;
     *)
@@ -183,7 +191,7 @@ run_case() {
       --add-dir "$SKILL_DIR" \
       --add-dir "$repo_dir" \
       --log-dir "$COPILOT_LOG_DIR" \
-      -p "Use the android-development skill at $SKILL_DIR. If it is not installed, read $SKILL_DIR/SKILL.md directly and use progressive disclosure across the references directory. Repository root: $repo_dir
+      -p "Use the android-development skill at $SKILL_DIR. If it is not installed, read $SKILL_DIR/SKILL.md directly and use progressive disclosure across the references directory. Use only read-only operations: bounded shell inspection, targeted file reads, and cheap wrapper help commands. Do not edit files, install packages, or write new artifacts. Repository root: $repo_dir
 
 $(scenario_prompt "$scenario")" > "$raw_file" 2>&1
   ); then

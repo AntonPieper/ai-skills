@@ -40,6 +40,8 @@ jobs:
     timeout-minutes: 75
     env:
       GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+      MODEL: gpt-5.4-mini
+      INSTALL_SKILL: '1'
       REPOS: termux,cleanarchitecture
       SCENARIOS: discovery,tasks,modernization,ui-triage
       JOBS: '2'
@@ -69,11 +71,22 @@ jobs:
 
       - name: Set up Android SDK tools
         uses: android-actions/setup-android@651bceb6f9ca583f16b8d75b62c36ded2ae6fc9c
-        with:
-          packages: ''
 
-      - name: Install Android build tools
-        run: sdkmanager "platforms;android-35" "build-tools;36.0.0"
+      - name: Install emulator and platform packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "emulator" \
+            "platforms;android-35" \
+            "build-tools;36.0.0" \
+            "system-images;android-35;default;x86_64"
+
+      - name: Verify Android toolchain
+        run: |
+          sdkmanager --list_installed | grep -E 'platform-tools|emulator|platforms;android-35|build-tools;36.0.0|system-images;android-35;default;x86_64'
+          adb version
+          emulator -version | head -n 1
 
       - name: Install media tooling
         run: |
@@ -93,14 +106,14 @@ jobs:
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: Run smoke matrix
+      - name: Run read-only smoke matrix
         run: ./validation/android-development/smoke.sh
 
-      - name: Acquire site showcase data
+      - name: Acquire read-only site showcase data
         if: ${{ !cancelled() }}
         run: ./validation/android-development/site-showcase.sh
 
-      - name: Run emulator-backed tooling smoke
+      - name: Run emulator-backed evidence capture
         if: ${{ !cancelled() }}
         uses: ReactiveCircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a
         with:
@@ -113,7 +126,7 @@ jobs:
           disable-animations: true
           script: bash ./validation/android-development/tooling-smoke.sh
 
-      - name: Process tooling artifacts
+      - name: Process tooling artifacts for the site bundle
         if: ${{ !cancelled() }}
         run: |
           if [ -f "$RUN_ROOT/tooling/metadata.env" ]; then
