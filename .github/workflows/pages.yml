@@ -12,13 +12,10 @@ on:
       - package-lock.json
       - site/**
       - scripts/build-pages-site.mjs
-      - scripts/process-android-tooling-artifacts.mjs
-      - scripts/render-android-smoke-report.mjs
+      - scripts/process-android-scenario-artifacts.mjs
       - skills/android/android-development/**
       - validation/android-development/evals/**
       - validation/android-development/smoke.sh
-      - validation/android-development/site-showcase.sh
-      - validation/android-development/tooling-smoke.sh
       - README.md
       - .github/workflows/android-development-smoke.yml
       - .github/workflows/pages.yml

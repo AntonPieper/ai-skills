@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">android-development</title>
+  <rect width="64" height="64" rx="18" fill="#18211c" />
+  <circle cx="20" cy="20" r="8" fill="#1f6d50" />
+  <path d="M18 42h28" stroke="#fbf7f0" stroke-linecap="round" stroke-width="6" />
+  <path d="M18 30h18" stroke="#f0e8da" stroke-linecap="round" stroke-width="6" />
+  <circle cx="46" cy="42" r="8" fill="#9d6121" />
+</svg>

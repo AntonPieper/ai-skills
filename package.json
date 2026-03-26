@@ -4,9 +4,19 @@
   "type": "module",
   "scripts": {
     "build:site": "node ./scripts/build-pages-site.mjs ./dist/site",
-    "process:android-tooling": "node ./scripts/process-android-tooling-artifacts.mjs"
+    "process:android-scenario-artifacts": "node ./scripts/process-android-scenario-artifacts.mjs"
   },
   "devDependencies": {
     "sharp": "^0.34.5"
+  },
+  "dependencies": {
+    "github-markdown-css": "^5.9.0",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5"
   }
 }

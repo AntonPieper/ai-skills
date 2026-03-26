@@ -1,15 +1,22 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeStringify from 'rehype-stringify';
+import remarkGfm from 'remark-gfm';
+import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
+import { unified } from 'unified';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoDir = path.resolve(__dirname, '..');
 const siteDir = path.join(repoDir, 'site');
-const evalsDir = path.join(repoDir, 'validation', 'android-development', 'evals');
+const githubMarkdownCss = path.join(repoDir, 'node_modules', 'github-markdown-css', 'github-markdown-light.css');
 
 const outputDir = process.argv[2];
-const runRootArg = process.argv[3] || '';
+const runRoot = process.argv[3] || '';
 const liveDataUrl = process.argv[4] || '';
 
 if (!outputDir) {
@@ -17,27 +24,79 @@ if (!outputDir) {
   process.exit(1);
 }
 
-const scenarioOrder = ['discovery', 'tasks', 'modernization', 'ui-triage'];
-const scenarioNames = {
-  discovery: 'Root Discovery',
-  tasks: 'Task Selection',
-  modernization: 'Modernization',
-  'ui-triage': 'UI Triage',
+const marketing = {
+  installCommand: 'npx skills add AntonPieper/ai-skills --skill android-development',
+  repositoryUrl: 'https://github.com/AntonPieper/ai-skills',
+  skillUrl: 'https://github.com/AntonPieper/ai-skills/tree/main/skills/android/android-development',
+  hero: {
+    title: 'Ground Android work in the next real command.',
+    body: 'This skill is built for the moments where generic Android advice drifts: unknown repo roots, Gradle task selection, modernization risk, and UI triage on an emulator. It keeps the agent close to the real repo, the real device, and the proof it can actually show.',
+    highlights: [
+      {
+        label: 'Root discovery',
+        body: 'Find the actual Android project before doing anything expensive.',
+      },
+      {
+        label: 'Task selection',
+        body: 'Choose the smallest build, test, and device command that answers the question.',
+      },
+      {
+        label: 'Visual triage',
+        body: 'Start with screenshots and short recordings before opening XML or logs.',
+      },
+    ],
+  },
+  sellingPoints: [
+    {
+      title: 'Find the real Android root first.',
+      body: 'Nested repos and sample catalogs make blind Gradle guesses expensive. The skill starts with the smallest discovery move and only widens the search when the repo actually demands it.',
+    },
+    {
+      title: 'Pick the next safe Gradle command.',
+      body: 'Build, lint, unit tests, and connected tests are kept separate so the next command is specific, reproducible, and cheap enough to trust.',
+    },
+    {
+      title: 'Triage UI with screenshots before XML.',
+      body: 'On-device debugging stays screenshot-first, video-aware, and bounded. XML and logcat become backup material instead of the first wall of context.',
+    },
+    {
+      title: 'Keep modernization grounded.',
+      body: 'Legacy Gradle, AGP, Kotlin, AndroidX, namespace, and JDK problems are treated as evidence-gathering work, not a blind upgrade script.',
+    },
+  ],
+  prompts: [
+    'Find the smallest Android project root here and tell me the first safe inspection command.',
+    'Tell me the smallest Gradle commands for build, unit tests, and connected tests in this repo.',
+    'Give me a screenshot-first Android UI triage plan that keeps XML and logs bounded.',
+  ],
+  references: [
+    {
+      title: 'Setup and updates',
+      href: 'https://github.com/AntonPieper/ai-skills/blob/main/skills/android/android-development/references/setup-update.md',
+      body: 'Install JDK, Android SDK, adb, emulator tools, and keep the environment current.',
+    },
+    {
+      title: 'Nested repo discovery',
+      href: 'https://github.com/AntonPieper/ai-skills/blob/main/skills/android/android-development/references/nested-repo-discovery.md',
+      body: 'Find the actual Android root in monorepos and sample catalogs before wasting tokens.',
+    },
+    {
+      title: 'Build, lint, and test',
+      href: 'https://github.com/AntonPieper/ai-skills/blob/main/skills/android/android-development/references/build-lint-test.md',
+      body: 'Choose the smallest reliable Gradle commands for build, unit test, and connected test work.',
+    },
+    {
+      title: 'On-device visual triage',
+      href: 'https://github.com/AntonPieper/ai-skills/blob/main/skills/android/android-development/references/on-device-interaction-visual-testing.md',
+      body: 'Keep UI debugging screenshot-first and bounded before opening XML or logcat.',
+    },
+    {
+      title: 'Modernization guidance',
+      href: 'https://github.com/AntonPieper/ai-skills/blob/main/skills/android/android-development/references/modernization.md',
+      body: 'Ground upgrade work in concrete Gradle, AGP, Kotlin, namespace, and JDK signals.',
+    },
+  ],
 };
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
-function parseIntLike(value) {
-  const match = String(value ?? '').replaceAll(',', '').match(/\d+/);
-  return match ? Number.parseInt(match[0], 10) : 0;
-}
 
 async function fileExists(filePath) {
   try {
@@ -48,483 +107,421 @@ async function fileExists(filePath) {
   }
 }
 
-function extractFirstJson(text) {
-  const start = text.indexOf('{');
-  if (start === -1) {
-    return null;
-  }
-
-  let depth = 0;
-  let inString = false;
-  let escaping = false;
-
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index];
-
-    if (escaping) {
-      escaping = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      escaping = true;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) {
-      continue;
-    }
-
-    if (char === '{') {
-      depth += 1;
-    } else if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        return text.slice(start, index + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
-async function readEvalCounts() {
-  const [evalsText, trainText, validationText] = await Promise.all([
-    fs.readFile(path.join(evalsDir, 'evals.json'), 'utf8'),
-    fs.readFile(path.join(evalsDir, 'trigger-queries.train.json'), 'utf8'),
-    fs.readFile(path.join(evalsDir, 'trigger-queries.validation.json'), 'utf8'),
-  ]);
-
-  const evals = JSON.parse(evalsText);
-  const triggerTrain = JSON.parse(trainText);
-  const triggerValidation = JSON.parse(validationText);
-
-  return {
-    outputEvalCases: evals.evals.length,
-    triggerTrainQueries: triggerTrain.length,
-    triggerValidationQueries: triggerValidation.length,
-    triggerQueriesTotal: triggerTrain.length + triggerValidation.length,
-  };
-}
-
-function buildMatrix(rows) {
-  const repos = [...new Set(rows.map((row) => row.repo))];
-  const scenarios = scenarioOrder.filter((scenario) => rows.some((row) => row.scenario === scenario));
-  const cells = repos.flatMap((repo) => scenarios.map((scenario) => {
-    const match = rows.find((row) => row.repo === repo && row.scenario === scenario);
-    return {
-      repo,
-      scenario,
-      result: match?.result ?? 'MISSING',
-      exit_code: match?.exit_code ?? '',
-      total_usage: match?.total_usage ?? '',
-      session_time: match?.session_time ?? '',
-      log_name: match?.log_name ?? '',
-    };
-  }));
-
-  return { repos, scenarios, cells };
-}
-
-function buildRepoStats(rows) {
-  return [...new Set(rows.map((row) => row.repo))].map((repo) => {
-    const repoRows = rows.filter((row) => row.repo === repo);
-    const passed = repoRows.filter((row) => row.result === 'PASS').length;
-    return {
-      repo,
-      total: repoRows.length,
-      passed,
-      failed: repoRows.length - passed,
-    };
-  });
-}
-
-function buildScenarioStats(rows) {
-  return scenarioOrder
-    .filter((scenario) => rows.some((row) => row.scenario === scenario))
-    .map((scenario) => {
-      const scenarioRows = rows.filter((row) => row.scenario === scenario);
-      const passed = scenarioRows.filter((row) => row.result === 'PASS').length;
-      return {
-        scenario,
-        total: scenarioRows.length,
-        passed,
-        failed: scenarioRows.length - passed,
-      };
-    });
-}
-
-function buildMatrixSvg(data) {
-  const cellWidth = 128;
-  const cellHeight = 74;
-  const leftMargin = 180;
-  const topMargin = 96;
-  const width = leftMargin + (data.matrix.scenarios.length * cellWidth) + 48;
-  const height = topMargin + (data.matrix.repos.length * cellHeight) + 44;
-
-  const cellColor = {
-    PASS: '#7effb2',
-    FAIL: '#ff7a59',
-    MISSING: '#3b4754',
-  };
-
-  const rowsSvg = data.matrix.repos.map((repo, rowIndex) => {
-    const y = topMargin + (rowIndex * cellHeight);
-    const label = `<text x="30" y="${y + 42}" font-family="IBM Plex Mono, monospace" font-size="14" fill="#b9c9d8">${escapeHtml(repo)}</text>`;
-    const cells = data.matrix.scenarios.map((scenario, colIndex) => {
-      const x = leftMargin + (colIndex * cellWidth);
-      const cell = data.matrix.cells.find((item) => item.repo === repo && item.scenario === scenario);
-      const result = cell?.result ?? 'MISSING';
-      const detail = result === 'FAIL' ? (cell?.exit_code || '1') : (cell?.session_time || 'ok');
-      const fill = cellColor[result] ?? cellColor.MISSING;
-      const textFill = result === 'MISSING' ? '#d5e2ee' : '#091019';
-      return `
-        <g>
-          <rect x="${x}" y="${y}" width="114" height="56" rx="18" fill="${fill}" opacity="${result === 'MISSING' ? '0.88' : '1'}" />
-          <text x="${x + 16}" y="${y + 24}" font-family="IBM Plex Mono, monospace" font-size="13" fill="${textFill}">${escapeHtml(result)}</text>
-          <text x="${x + 16}" y="${y + 43}" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="${textFill}">${escapeHtml(detail)}</text>
-        </g>`;
-    }).join('');
-    return `${label}${cells}`;
-  }).join('');
-
-  const headersSvg = data.matrix.scenarios.map((scenario, index) => {
-    const x = leftMargin + (index * cellWidth) + 16;
-    return `<text x="${x}" y="58" font-family="IBM Plex Mono, monospace" font-size="12" fill="#b9c9d8">${escapeHtml(scenarioNames[scenario] || scenario)}</text>`;
-  }).join('');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none">
-  <rect width="${width}" height="${height}" rx="30" fill="#111922" />
-  <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="29" stroke="#273645" />
-  <text x="30" y="38" font-family="Bricolage Grotesque, sans-serif" font-size="24" fill="#f4f7fb">Prompt smoke matrix</text>
-  <text x="30" y="62" font-family="IBM Plex Sans, sans-serif" font-size="14" fill="#8ea5bb">${escapeHtml(`${data.headline.total_cases} cases · ${data.headline.passed} passed · ${data.headline.failed} failed`)}</text>
-  ${headersSvg}
-  ${rowsSvg}
-</svg>`;
-}
-
-function buildScenarioBarsSvg(data) {
-  const width = 760;
-  const height = 280;
-  const innerWidth = 408;
-  const maxTotal = Math.max(1, ...data.scenario_stats.map((item) => item.total));
-
-  const rowsSvg = data.scenario_stats.map((item, index) => {
-    const y = 48 + (index * 54);
-    const passWidth = (item.passed / maxTotal) * innerWidth;
-    const failWidth = (item.failed / maxTotal) * innerWidth;
-    return `
-      <g>
-        <text x="30" y="${y + 19}" font-family="IBM Plex Mono, monospace" font-size="12" fill="#b9c9d8">${escapeHtml(scenarioNames[item.scenario] || item.scenario)}</text>
-        <rect x="264" y="${y}" width="${innerWidth}" height="24" rx="12" fill="#253340" />
-        <rect x="264" y="${y}" width="${passWidth}" height="24" rx="12" fill="#7effb2" />
-        <rect x="${264 + passWidth}" y="${y}" width="${failWidth}" height="24" rx="12" fill="#ff7a59" />
-        <text x="690" y="${y + 17}" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="#dbe6ee">${item.passed}/${item.total} passed</text>
-      </g>`;
-  }).join('');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" fill="none">
-  <rect width="${width}" height="${height}" rx="30" fill="#111922" />
-  <rect x="1" y="1" width="${width - 2}" height="${height - 2}" rx="29" stroke="#273645" />
-  <text x="30" y="38" font-family="Bricolage Grotesque, sans-serif" font-size="24" fill="#f4f7fb">Scenario balance</text>
-  <text x="30" y="62" font-family="IBM Plex Sans, sans-serif" font-size="14" fill="#8ea5bb">Pass and fail counts for each smoke prompt scenario.</text>
-  ${rowsSvg}
-</svg>`;
-}
-
-async function loadShowcase(runRoot) {
-  const rawDir = path.join(runRoot, 'showcase', 'raw');
-  if (!(await fileExists(rawDir))) {
-    return [];
-  }
-
-  const files = (await fs.readdir(rawDir)).filter((file) => file.endsWith('.txt')).sort();
-  const showcase = [];
-
-  for (const file of files) {
-    const rawText = await fs.readFile(path.join(rawDir, file), 'utf8');
-    const jsonText = extractFirstJson(rawText);
-    if (!jsonText) {
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(jsonText);
-      showcase.push({
-        id: parsed.id || file.replace(/\.txt$/, ''),
-        scenario: parsed.scenario || 'unknown',
-        repo_label: parsed.repo_label || file.split('__')[0],
-        repo_url: parsed.repo_url || '',
-        headline: parsed.headline || 'Showcase result',
-        summary: parsed.summary || '',
-        highlights: Array.isArray(parsed.highlights) ? parsed.highlights.slice(0, 4) : [],
-        commands: Array.isArray(parsed.commands) ? parsed.commands.slice(0, 4) : [],
-        quote: parsed.quote || '',
-        starter_prompt: parsed.starter_prompt || '',
-      });
-    } catch {
-      // ignore malformed output and continue with the rest of the showcase set
-    }
-  }
-
-  return showcase.sort((left, right) => scenarioOrder.indexOf(left.scenario) - scenarioOrder.indexOf(right.scenario));
-}
-
-function mapToolingMediaPaths(toolingSummary) {
-  if (!toolingSummary?.media) {
-    return toolingSummary;
-  }
-
-  const media = Object.fromEntries(
-    Object.entries(toolingSummary.media).map(([key, value]) => [
-      key,
-      value ? `./generated/tooling/${path.basename(value)}` : null,
-    ]),
-  );
-
-  return {
-    ...toolingSummary,
-    media,
-  };
-}
-
-async function loadToolingSummary(runRoot) {
-  const summaryPath = path.join(runRoot, 'tooling', 'summary.json');
-  if (!(await fileExists(summaryPath))) {
-    return null;
-  }
-
-  const summary = JSON.parse(await fs.readFile(summaryPath, 'utf8'));
-  return mapToolingMediaPaths(summary);
-}
-
-async function buildDataFromRunRoot(runRoot) {
-  const summaryJsonPath = path.join(runRoot, 'report', 'summary.json');
-  if (!(await fileExists(summaryJsonPath))) {
-    return null;
-  }
-
-  const summary = JSON.parse(await fs.readFile(summaryJsonPath, 'utf8'));
-  const rows = Array.isArray(summary.rows) ? summary.rows : [];
-  const showcase = await loadShowcase(runRoot);
-  const coverage = summary.evalCounts || await readEvalCounts();
-  const repoStats = buildRepoStats(rows);
-  const scenarioStats = buildScenarioStats(rows);
-  const totalInTokens = rows.reduce((sum, row) => sum + parseIntLike(row.in_tokens), 0);
-  const totalOutTokens = rows.reduce((sum, row) => sum + parseIntLike(row.out_tokens), 0);
-  const reportPath = path.join(runRoot, 'report', 'index.html');
-  const tooling = await loadToolingSummary(runRoot);
-
-  return {
-    generated_at: new Date().toISOString(),
-    source: 'smoke-run',
-    workflow_run_url: process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
-      ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-      : null,
-    headline: {
-      total_cases: summary.counts?.total ?? rows.length,
-      passed: summary.counts?.passed ?? rows.filter((row) => row.result === 'PASS').length,
-      failed: summary.counts?.failed ?? rows.filter((row) => row.result === 'FAIL').length,
-      repos_covered: repoStats.length,
-      scenarios_covered: scenarioStats.length,
-      pass_rate: rows.length === 0 ? 0 : Math.round(((summary.counts?.passed ?? rows.filter((row) => row.result === 'PASS').length) / rows.length) * 100),
-      total_input_tokens: totalInTokens,
-      total_output_tokens: totalOutTokens,
-    },
-    coverage,
-    repo_stats: repoStats,
-    scenario_stats: scenarioStats,
-    matrix: buildMatrix(rows),
-    showcase,
-    tooling,
-    links: {
-      report: (await fileExists(reportPath)) ? './reports/latest/index.html' : null,
-      workflow_run: process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_RUN_ID
-        ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
-        : null,
-    },
-  };
-}
-
-async function fetchJson(url) {
-  if (!url) {
-    return null;
-  }
-
+async function readJson(filePath, fallback = null) {
   try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-      },
-    });
-    if (!response.ok) {
-      return null;
-    }
-    return await response.json();
+    return JSON.parse(await fs.readFile(filePath, 'utf8'));
   } catch {
-    return null;
+    return fallback;
   }
 }
 
 async function fetchText(url) {
-  if (!url) {
-    return null;
-  }
-
   try {
     const response = await fetch(url, {
       headers: {
-        Accept: 'text/html, text/plain;q=0.9,*/*;q=0.8',
+        Accept: 'text/plain, text/markdown, text/html;q=0.9, application/json;q=0.8, */*;q=0.7',
       },
     });
+
     if (!response.ok) {
       return null;
     }
+
     return await response.text();
   } catch {
     return null;
   }
 }
 
-async function copyLiveToolingAssets(siteData, liveUrl, outputBase) {
-  if (!siteData.tooling?.media || !liveUrl) {
-    return;
+async function fetchJson(url) {
+  const text = await fetchText(url);
+  if (!text) {
+    return null;
   }
 
-  const siteRootUrl = new URL('../', liveUrl);
-  const targetDir = path.join(outputBase, 'generated', 'tooling');
-  await fs.mkdir(targetDir, { recursive: true });
-
-  const seen = new Set();
-
-  for (const assetPath of Object.values(siteData.tooling.media)) {
-    if (!assetPath || seen.has(assetPath)) {
-      continue;
-    }
-    seen.add(assetPath);
-
-    try {
-      const assetUrl = new URL(assetPath.replace(/^\.\//, ''), siteRootUrl);
-      const response = await fetch(assetUrl);
-      if (!response.ok) {
-        continue;
-      }
-
-      const buffer = Buffer.from(await response.arrayBuffer());
-      await fs.writeFile(path.join(targetDir, path.basename(assetPath)), buffer);
-    } catch {
-      // Keep the rest of the site build working even if one cached asset is unavailable.
-    }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
   }
 }
 
-async function buildFallbackData() {
-  const coverage = await readEvalCounts();
+async function fetchBuffer(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return null;
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+function buildSchema() {
+  const schema = structuredClone(defaultSchema);
+  schema.tagNames = [...(schema.tagNames || []), 'video', 'source', 'figure', 'figcaption'];
+  schema.attributes = {
+    ...(schema.attributes || {}),
+    a: [...(schema.attributes?.a || []), 'target', 'rel'],
+    code: [...(schema.attributes?.code || []), ['className', /^language-./]],
+    img: [...(schema.attributes?.img || []), 'loading', 'decoding'],
+    video: [
+      'aria-label',
+      'controls',
+      'loop',
+      'muted',
+      'playsinline',
+      'poster',
+      'preload',
+      ['className'],
+    ],
+    source: ['src', 'type'],
+  };
+  return schema;
+}
+
+const markdownProcessor = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkRehype, { allowDangerousHtml: true })
+  .use(rehypeRaw)
+  .use(rehypeSanitize, buildSchema())
+  .use(rehypeStringify);
+
+function rewriteScenarioAssetUrls(html, basePath) {
+  return html
+    .replaceAll(/(src|href|poster)="\.\/([^"]+)"/g, (_match, attr, assetPath) => `${attr}="${basePath}/${assetPath}"`)
+    .replaceAll(/(src|href|poster)="(media\/[^"]+)"/g, (_match, attr, assetPath) => `${attr}="${basePath}/${assetPath}"`)
+    .replaceAll(/(src|href|poster)="(raw\/[^"]+)"/g, (_match, attr, assetPath) => `${attr}="${basePath}/${assetPath}"`);
+}
+
+async function renderMarkdown(markdown, basePath) {
+  const rendered = await markdownProcessor.process(markdown);
+  return rewriteScenarioAssetUrls(String(rendered), basePath);
+}
+
+function withScenarioBase(basePath, assetPath) {
+  if (!assetPath) {
+    return null;
+  }
+
+  return `${basePath}/${String(assetPath).replace(/^\.\//, '')}`;
+}
+
+function toUrl(siteRootUrl, assetPath) {
+  return new URL(String(assetPath).replace(/^\.\//, ''), siteRootUrl).toString();
+}
+
+async function writeRemoteAsset(siteRootUrl, assetPath, outputRoot) {
+  const targetPath = path.join(outputRoot, assetPath.replace(/^\.\//, ''));
+  const contents = await fetchBuffer(toUrl(siteRootUrl, assetPath));
+  if (!contents) {
+    return false;
+  }
+
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.writeFile(targetPath, contents);
+  return true;
+}
+
+function normalizeCommands(commands) {
+  if (!Array.isArray(commands)) {
+    return [];
+  }
+
+  return commands
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return { label: 'Command', command: entry, status: 'info' };
+      }
+
+      return {
+        label: entry.label || 'Command',
+        command: entry.command || '',
+        status: entry.status || 'info',
+        detail: entry.detail || '',
+      };
+    })
+    .filter((entry) => entry.command);
+}
+
+function normalizeChecks(checks) {
+  if (!Array.isArray(checks)) {
+    return [];
+  }
+
+  return checks.map((entry) => ({
+    label: entry.label || 'Check',
+    status: entry.status || 'info',
+    detail: entry.detail || '',
+  }));
+}
+
+async function loadScenarioRuns(runRootValue, outputRoot) {
+  const scenarioRoot = path.join(runRootValue, 'scenarios');
+  if (!runRootValue || !(await fileExists(scenarioRoot))) {
+    return [];
+  }
+
+  const entries = await fs.readdir(scenarioRoot, { withFileTypes: true });
+  const scenarios = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const scenarioDir = path.join(scenarioRoot, entry.name);
+    const outputScenarioDir = path.join(outputRoot, 'reports', 'latest', 'scenarios', entry.name);
+    const result = await readJson(path.join(scenarioDir, 'result.json'), {});
+    const media = await readJson(path.join(scenarioDir, 'media', 'index.json'), { images: [], videos: [] });
+    const reportMarkdown = await fs
+      .readFile(path.join(scenarioDir, 'report.md'), 'utf8')
+      .catch(() => 'No report was written for this scenario.');
+
+    await fs.mkdir(path.dirname(outputScenarioDir), { recursive: true });
+    await fs.cp(scenarioDir, outputScenarioDir, { recursive: true, force: true });
+
+    const basePath = `./reports/latest/scenarios/${entry.name}`;
+    const fixture = result.fixture || {};
+    const repo = result.repo || {};
+
+    scenarios.push({
+      id: result.scenarioId || entry.name,
+      slug: entry.name,
+      title: result.title || entry.name,
+      status: result.status || 'unknown',
+      generatedAt: result.generatedAt || null,
+      summary: result.summary || 'Scenario output is available in the report below.',
+      type: result.type || result.scenarioId || entry.name,
+      repoLabel: fixture.label || repo.label || 'Android fixture',
+      repoUrl: fixture.repoUrl || repo.url || '',
+      keyFindings: Array.isArray(result.keyFindings) ? result.keyFindings : [],
+      checks: normalizeChecks(result.checks),
+      commands: normalizeCommands(result.commands),
+      reportHtml: await renderMarkdown(reportMarkdown, basePath),
+      reportPath: `${basePath}/report.md`,
+      resultPath: `${basePath}/result.json`,
+      media,
+      primaryImage: withScenarioBase(basePath, media.images?.[0]?.output),
+      primaryVideo: withScenarioBase(basePath, media.videos?.[0]?.output),
+      primaryVideoPoster: withScenarioBase(basePath, media.videos?.[0]?.poster),
+    });
+  }
+
+  return scenarios.sort((left, right) => left.title.localeCompare(right.title));
+}
+
+async function loadPublishedScenarioRuns(liveDataUrlValue, outputRoot) {
+  if (!liveDataUrlValue) {
+    return null;
+  }
+
+  const published = await fetchJson(liveDataUrlValue);
+  if (!published || !Array.isArray(published.scenarios) || published.scenarios.length === 0) {
+    return published
+      ? {
+          generatedAt: published.generatedAt || new Date().toISOString(),
+          scenarios: [],
+        }
+      : null;
+  }
+
+  const siteRootUrl = new URL('../', liveDataUrlValue);
+  const scenarios = [];
+
+  for (const scenario of published.scenarios) {
+    const slug = scenario.slug || scenario.id;
+    if (!slug || !scenario.reportPath || !scenario.resultPath) {
+      continue;
+    }
+
+    const outputScenarioDir = path.join(outputRoot, 'reports', 'latest', 'scenarios', slug);
+    await fs.mkdir(path.join(outputScenarioDir, 'media'), { recursive: true });
+
+    const result = await fetchJson(toUrl(siteRootUrl, scenario.resultPath));
+    const reportMarkdown = await fetchText(toUrl(siteRootUrl, scenario.reportPath));
+    const media = await fetchJson(toUrl(siteRootUrl, `./reports/latest/scenarios/${slug}/media/index.json`)) || scenario.media || { images: [], videos: [] };
+
+    if (!result || !reportMarkdown) {
+      continue;
+    }
+
+    await Promise.all([
+      fs.writeFile(path.join(outputScenarioDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`),
+      fs.writeFile(path.join(outputScenarioDir, 'report.md'), reportMarkdown),
+      fs.writeFile(path.join(outputScenarioDir, 'media', 'index.json'), `${JSON.stringify(media, null, 2)}\n`),
+    ]);
+
+    const assetPaths = new Set();
+    assetPaths.add(`./reports/latest/scenarios/${slug}/media/index.json`);
+
+    for (const image of media.images || []) {
+      if (image.output) {
+        assetPaths.add(`./reports/latest/scenarios/${slug}/${String(image.output).replace(/^\.\//, '')}`);
+      }
+    }
+
+    for (const video of media.videos || []) {
+      if (video.output) {
+        assetPaths.add(`./reports/latest/scenarios/${slug}/${String(video.output).replace(/^\.\//, '')}`);
+      }
+      if (video.poster) {
+        assetPaths.add(`./reports/latest/scenarios/${slug}/${String(video.poster).replace(/^\.\//, '')}`);
+      }
+    }
+
+    await Promise.all([...assetPaths].map((assetPath) => writeRemoteAsset(siteRootUrl, assetPath, outputRoot)));
+
+    const basePath = `./reports/latest/scenarios/${slug}`;
+    scenarios.push({
+      id: result.scenarioId || scenario.id || slug,
+      slug,
+      title: result.title || scenario.title || slug,
+      status: result.status || scenario.status || 'unknown',
+      generatedAt: result.generatedAt || scenario.generatedAt || null,
+      summary: result.summary || scenario.summary || 'Scenario output is available in the report below.',
+      type: result.type || scenario.type || result.scenarioId || slug,
+      repoLabel: result.fixture?.label || scenario.repoLabel || 'Android fixture',
+      repoUrl: result.fixture?.repoUrl || scenario.repoUrl || '',
+      keyFindings: Array.isArray(result.keyFindings) ? result.keyFindings : [],
+      checks: normalizeChecks(result.checks),
+      commands: normalizeCommands(result.commands),
+      reportHtml: await renderMarkdown(reportMarkdown, basePath),
+      reportPath: `${basePath}/report.md`,
+      resultPath: `${basePath}/result.json`,
+      media,
+      primaryImage: withScenarioBase(basePath, media.images?.[0]?.output),
+      primaryVideo: withScenarioBase(basePath, media.videos?.[0]?.output),
+      primaryVideoPoster: withScenarioBase(basePath, media.videos?.[0]?.poster),
+    });
+  }
+
   return {
-    generated_at: new Date().toISOString(),
-    source: 'fallback',
-    workflow_run_url: null,
-    headline: {
-      total_cases: 0,
-      passed: 0,
-      failed: 0,
-      repos_covered: 0,
-      scenarios_covered: 0,
-      pass_rate: 0,
-      total_input_tokens: 0,
-      total_output_tokens: 0,
-    },
-    coverage,
-    repo_stats: [],
-    scenario_stats: [],
-    matrix: { repos: [], scenarios: [], cells: [] },
-    showcase: [],
-    tooling: null,
-    links: {
-      report: null,
-      workflow_run: null,
-    },
+    generatedAt: published.generatedAt || new Date().toISOString(),
+    scenarios: scenarios.sort((left, right) => left.title.localeCompare(right.title)),
   };
 }
 
-async function loadSiteData(runRoot, liveUrl) {
-  if (runRoot) {
-    const fromRunRoot = await buildDataFromRunRoot(runRoot);
-    if (fromRunRoot) {
-      return { data: fromRunRoot, reportHtml: await fs.readFile(path.join(runRoot, 'report', 'index.html'), 'utf8').catch(() => null) };
+function buildSummary(scenarios) {
+  const total = scenarios.length;
+  const passed = scenarios.filter((scenario) => scenario.status === 'passed').length;
+  const failed = scenarios.filter((scenario) => scenario.status === 'failed').length;
+  const warning = scenarios.filter((scenario) => scenario.status === 'warning').length;
+  const fixtures = [...new Set(scenarios.map((scenario) => scenario.repoLabel))];
+
+  return {
+    total,
+    passed,
+    failed,
+    warning,
+    fixtures,
+    withMedia: scenarios.filter((scenario) => scenario.media.images?.length || scenario.media.videos?.length).length,
+  };
+}
+
+function buildReportIndex(payload) {
+  const items = payload.scenarios
+    .map((scenario) => {
+      const repo = scenario.repoUrl
+        ? `<a href="${scenario.repoUrl}">${scenario.repoLabel}</a>`
+        : scenario.repoLabel;
+
+      return `
+      <article class="report-card">
+        <div class="report-topline">
+          <span class="report-status report-status-${scenario.status}">${scenario.status}</span>
+          <span>${repo}</span>
+        </div>
+        <h2>${scenario.title}</h2>
+        <p>${scenario.summary}</p>
+        <p><a href="./scenarios/${scenario.slug}/report.md">Open markdown report</a> · <a href="./scenarios/${scenario.slug}/result.json">Open result.json</a></p>
+      </article>`;
+    })
+    .join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>android-development scenario runs</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f3ec;
+      --card: #fffdf9;
+      --ink: #17221c;
+      --muted: #5a655f;
+      --line: #d9d2c7;
+      --green: #1d6b4a;
+      --amber: #b56a16;
+      --red: #a63d2f;
     }
-  }
-
-  const liveData = await fetchJson(liveUrl);
-  if (liveData) {
-    const reportUrl = liveUrl ? new URL('../reports/latest/index.html', liveUrl).toString() : '';
-    const reportHtml = await fetchText(reportUrl);
-    return {
-      data: {
-        ...liveData,
-        source: 'live-cache',
-      },
-      reportHtml,
-    };
-  }
-
-  return { data: await buildFallbackData(), reportHtml: null };
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    main { width: min(980px, calc(100% - 2rem)); margin: 0 auto; padding: 3rem 0 4rem; }
+    h1 { margin: 0 0 0.75rem; font-size: clamp(2rem, 5vw, 3.2rem); }
+    p { line-height: 1.6; color: var(--muted); }
+    .report-grid { display: grid; gap: 1rem; margin-top: 2rem; }
+    .report-card { padding: 1.2rem; border: 1px solid var(--line); border-radius: 20px; background: var(--card); }
+    .report-topline { display: flex; gap: 0.75rem; flex-wrap: wrap; font-size: 0.95rem; color: var(--muted); }
+    .report-status { display: inline-flex; padding: 0.2rem 0.6rem; border-radius: 999px; font-weight: 700; text-transform: capitalize; }
+    .report-status-passed { color: var(--green); background: rgba(29, 107, 74, 0.1); }
+    .report-status-warning { color: var(--amber); background: rgba(181, 106, 22, 0.12); }
+    .report-status-failed { color: var(--red); background: rgba(166, 61, 47, 0.12); }
+    a { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <main>
+    <p>android-development</p>
+    <h1>Scenario run index</h1>
+    <p>${payload.summary.total} scenario runs, ${payload.summary.passed} passed, ${payload.summary.warning} warnings, ${payload.summary.failed} failed.</p>
+    <div class="report-grid">${items || '<p>No scenario runs were bundled with this build.</p>'}</div>
+  </main>
+</body>
+</html>`;
 }
-
-async function copyToolingAssets(runRoot, outputBase) {
-  if (!runRoot) {
-    return;
-  }
-
-  const sourceDir = path.join(runRoot, 'tooling', 'processed');
-  if (!(await fileExists(sourceDir))) {
-    return;
-  }
-
-  const targetDir = path.join(outputBase, 'generated', 'tooling');
-  await fs.mkdir(targetDir, { recursive: true });
-  await fs.cp(sourceDir, targetDir, { recursive: true });
-}
-
-const { data: siteData, reportHtml } = await loadSiteData(runRootArg, liveDataUrl);
 
 await fs.rm(outputDir, { recursive: true, force: true });
-await fs.mkdir(outputDir, { recursive: true });
-await fs.cp(siteDir, outputDir, { recursive: true });
+await fs.mkdir(path.join(outputDir, 'data'), { recursive: true });
+await fs.mkdir(path.join(outputDir, 'assets'), { recursive: true });
+await fs.mkdir(path.join(outputDir, 'reports', 'latest'), { recursive: true });
 
-const dataDir = path.join(outputDir, 'data');
-const generatedDir = path.join(outputDir, 'generated');
-const reportOutputDir = path.join(outputDir, 'reports', 'latest');
+await Promise.all([
+  fs.copyFile(path.join(siteDir, 'favicon.svg'), path.join(outputDir, 'favicon.svg')),
+  fs.copyFile(path.join(siteDir, 'index.html'), path.join(outputDir, 'index.html')),
+  fs.copyFile(path.join(siteDir, 'styles.css'), path.join(outputDir, 'styles.css')),
+  fs.copyFile(path.join(siteDir, 'script.js'), path.join(outputDir, 'script.js')),
+  fs.copyFile(githubMarkdownCss, path.join(outputDir, 'assets', 'github-markdown-light.css')),
+]);
 
-await fs.mkdir(dataDir, { recursive: true });
-await fs.mkdir(generatedDir, { recursive: true });
-await copyToolingAssets(runRootArg, outputDir);
-
-if (!runRootArg) {
-  await copyLiveToolingAssets(siteData, liveDataUrl, outputDir);
+if (runRoot && (await fileExists(path.join(runRoot, 'skill-package.txt')))) {
+  await fs.copyFile(path.join(runRoot, 'skill-package.txt'), path.join(outputDir, 'reports', 'latest', 'skill-package.txt'));
+} else if (liveDataUrl) {
+  await writeRemoteAsset(new URL('../', liveDataUrl), './reports/latest/skill-package.txt', outputDir);
 }
 
-siteData.visuals = {
-  matrix: './generated/matrix.svg',
-  scenario_bars: './generated/scenario-bars.svg',
+const runRootScenarios = await loadScenarioRuns(runRoot, outputDir);
+const publishedScenarios = runRootScenarios.length === 0
+  ? await loadPublishedScenarioRuns(liveDataUrl, outputDir)
+  : null;
+const scenarios = runRootScenarios.length > 0
+  ? runRootScenarios
+  : (publishedScenarios?.scenarios || []);
+const payload = {
+  generatedAt: publishedScenarios?.generatedAt || new Date().toISOString(),
+  marketing,
+  summary: buildSummary(scenarios),
+  scenarios,
 };
 
 await Promise.all([
-  fs.writeFile(path.join(dataDir, 'latest.json'), `${JSON.stringify(siteData, null, 2)}\n`),
-  fs.writeFile(path.join(generatedDir, 'matrix.svg'), buildMatrixSvg(siteData)),
-  fs.writeFile(path.join(generatedDir, 'scenario-bars.svg'), buildScenarioBarsSvg(siteData)),
+  fs.writeFile(path.join(outputDir, 'data', 'latest.json'), `${JSON.stringify(payload, null, 2)}\n`),
+  fs.writeFile(path.join(outputDir, 'reports', 'latest', 'index.html'), buildReportIndex(payload)),
 ]);
 
-if (reportHtml) {
-  await fs.mkdir(reportOutputDir, { recursive: true });
-  await fs.writeFile(path.join(reportOutputDir, 'index.html'), reportHtml);
-}
-
-console.log(`Built Pages site in ${outputDir}`);
+console.log(`Built site bundle in ${outputDir}`);

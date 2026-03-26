@@ -6,27 +6,25 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SKILL_DIR="${SKILL_DIR:-$REPO_DIR/skills/android/android-development}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-RUN_ROOT="${RUN_ROOT:-${TMPDIR:-/tmp}/android-development-smoke/$TIMESTAMP}"
+RUN_ROOT="${RUN_ROOT:-${TMPDIR:-/tmp}/android-development-scenarios/$TIMESTAMP}"
 REPOS_DIR="$RUN_ROOT/repos"
+PROMPTS_DIR="$RUN_ROOT/prompts"
+SCENARIOS_DIR="$RUN_ROOT/scenarios"
 LOG_DIR="$RUN_ROOT/logs"
-PROMPT_DIR="$RUN_ROOT/prompts"
-RESULT_DIR="$RUN_ROOT/results"
 COPILOT_LOG_DIR="$RUN_ROOT/copilot-internal-logs"
 SUMMARY_TSV="$RUN_ROOT/summary.tsv"
 SKILL_LIST_FILE="$RUN_ROOT/skill-package.txt"
 
 MODEL="${MODEL:-gpt-5.4-mini}"
-REASONING_EFFORT="${REASONING_EFFORT:-low}"
-TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-420}"
-JOBS="${JOBS:-3}"
+REASONING_EFFORT="${REASONING_EFFORT:-medium}"
 STREAM_MODE="${STREAM_MODE:-on}"
+TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-1500}"
 COPILOT_BIN="${COPILOT_BIN:-}"
-REPOS_FILTER="${REPOS:-}"
-SCENARIOS_FILTER="${SCENARIOS:-}"
 SKIP_CLONE="${SKIP_CLONE:-0}"
-INSTALL_SKILL="${INSTALL_SKILL:-0}"
+INSTALL_SKILL="${INSTALL_SKILL:-1}"
+FAIL_ON_SCENARIO_ERROR="${FAIL_ON_SCENARIO_ERROR:-0}"
 
-mkdir -p "$REPOS_DIR" "$LOG_DIR" "$PROMPT_DIR" "$RESULT_DIR" "$COPILOT_LOG_DIR"
+mkdir -p "$REPOS_DIR" "$PROMPTS_DIR" "$SCENARIOS_DIR" "$LOG_DIR" "$COPILOT_LOG_DIR"
 
 if [ -z "$COPILOT_BIN" ]; then
   if command -v copilot >/dev/null 2>&1; then
@@ -45,6 +43,7 @@ clone_repo() {
   local label="$1"
   local url="$2"
   local branch="$3"
+  local ref="$4"
   local repo_dir="$REPOS_DIR/$label"
 
   if [ "$SKIP_CLONE" = "1" ] && [ -d "$repo_dir/.git" ]; then
@@ -53,160 +52,432 @@ clone_repo() {
 
   rm -rf "$repo_dir"
   git clone --depth 1 --branch "$branch" "$url" "$repo_dir" >/dev/null 2>&1
+
+  if [ -n "$ref" ]; then
+    (
+      cd "$repo_dir"
+      git fetch --depth 1 origin "$ref" >/dev/null 2>&1 || true
+      git checkout --detach "$ref" >/dev/null 2>&1
+    )
+  fi
 }
 
-repo_selected() {
-  local label="$1"
-  if [ -z "$REPOS_FILTER" ]; then
-    return 0
-  fi
-  case ",${REPOS_FILTER}," in
-    *",$label,"*) return 0 ;;
-  esac
-  return 1
-}
-
-scenario_selected() {
-  local label="$1"
-  if [ -z "$SCENARIOS_FILTER" ]; then
-    return 0
-  fi
-  case ",${SCENARIOS_FILTER}," in
-    *",$label,"*) return 0 ;;
-  esac
-  return 1
+json_status() {
+  local file="$1"
+  node -e "const fs=require('node:fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(String(data.status || 'missing'));" "$file"
 }
 
 scenario_prompt() {
-  local scenario="$1"
-  case "$scenario" in
-    discovery)
-      cat <<'EOF'
-Work read-only.
+  local scenario_id="$1"
+  local repo_dir="$2"
+  local repo_label="$3"
+  local repo_url="$4"
+  local module_hint="$5"
+  local result_json="$6"
+  local report_md="$7"
+  local raw_dir="$8"
+  local media_processor="$9"
+  local scenario_dir
 
-Allowed actions: small file reads, targeted wrapper inspection, and bounded shell commands only.
-Never edit files, install packages, write artifacts, or run build, lint, or test tasks.
+  scenario_dir="$(dirname "$result_json")"
 
-Find the smallest Android project root for this repository and the smallest standard wrapper-inspection commands you would run next.
-Constraints:
-    - Start with `find . -maxdepth 4` for `gradlew` and `settings.gradle*`.
-    - If that first pass finds nothing, you may widen the search once or inspect likely Android subdirectories.
-    - Read at most 2 repo files and at most 120 lines per file.
-    - Do not use broad recursive search beyond that limited fallback.
-- Do not run build, lint, or test tasks.
-Keep the answer under 12 lines and include the exact project root.
+  case "$scenario_id" in
+    toolchain-architecture-samples)
+      cat <<EOF
+Run a full Android toolchain validation using the android-development skill.
+
+Repository root: $repo_dir
+Repository label: $repo_label
+Repository URL: $repo_url
+Module hint: $module_hint
+
+Required outputs:
+- Write JSON to $result_json
+- Write Markdown to $report_md
+- If you capture raw screenshots or recordings, store them in $raw_dir
+
+Task:
+1. Find the real Android project root.
+2. Identify the smallest reliable Gradle commands for build, unit tests, and connected tests.
+3. Actually run those commands. If no connected test task exists, record a warning and explain what was verified instead.
+4. Do not edit the repository under test.
+5. Summarize what succeeded, what was skipped, and the exact commands that grounded the result.
+
+Write JSON with this exact top-level shape:
+{
+  "scenarioId": "toolchain-architecture-samples",
+  "type": "toolchain",
+  "title": "short title",
+  "status": "passed|warning|failed",
+  "summary": "1-2 sentence summary",
+  "generatedAt": "ISO-8601",
+  "fixture": {
+    "label": "$repo_label",
+    "repoUrl": "$repo_url"
+  },
+  "project": {
+    "root": "absolute path",
+    "module": "module name or path"
+  },
+  "commands": [
+    {
+      "label": "short label",
+      "command": "exact command",
+      "status": "passed|warning|failed",
+      "detail": "short outcome"
+    }
+  ],
+  "checks": [
+    {
+      "label": "short label",
+      "status": "passed|warning|failed",
+      "detail": "short evidence"
+    }
+  ],
+  "keyFindings": ["short bullet", "short bullet"]
+}
+
+Write Markdown with these sections in order:
+- # Title
+- ## Summary
+- ## Commands
+- ## Checks
+- ## Findings
+
+Keep both files concise and evidence-based.
 EOF
       ;;
-    tasks)
-      cat <<'EOF'
-Work read-only.
+    interaction-architecture-create-task)
+      cat <<EOF
+Run a manual on-device Android interaction scenario using the android-development skill.
 
-Allowed actions: small file reads and at most one targeted wrapper help command.
-Never edit files, install packages, or run build, lint, unit test, or connected test tasks.
+Repository root: $repo_dir
+Repository label: $repo_label
+Repository URL: $repo_url
+Module hint: $module_hint
 
-Identify the smallest standard Gradle commands for build, lint, unit tests, and connected tests for this repository.
-Constraints:
-- Inspect only `settings.gradle*`, the nearest module build file, and at most one targeted wrapper help command.
-- Stop after those reads even if the repository has more modules.
-- Do not use `tasks --all`, recursive search, or expensive Gradle lifecycle tasks.
-- Keep shell output bounded.
-Keep the answer under 14 lines.
+Required outputs:
+- Write JSON to $result_json
+- Write Markdown to $report_md
+- Save raw screenshots and recordings in $raw_dir
+- After capturing media, run: node $media_processor "$scenario_dir"
+
+This scenario was selected after repository exploration because architecture-samples has a deterministic, visually strong first-run todo creation flow.
+
+Task:
+1. Find the real Android project root and build a debuggable app if needed.
+2. Clear app data to force the empty-state first-run path.
+3. Install the app to the running emulator with adb and launch it.
+4. Execute this manual visual flow using adb input and bounded hierarchy inspection when needed:
+  - verify the empty state on the task list and prefer the visible empty-state screen over transient snackbars as proof,
+   - tap the new-task action,
+  - enter a short stable title and description, avoiding flaky adb text input patterns where possible,
+  - hide the keyboard if it obscures the save action,
+   - save the task,
+   - verify the app returns to the list and the new task is visible.
+5. Capture at least three screenshots: empty state, task entry form, and populated list after save.
+6. Capture one short screen recording that shows the interaction path.
+7. Keep any UI hierarchy dump or logcat capture bounded and use it only to ground ambiguous taps or assertions.
+8. Do not dump unbounded XML or logs into the markdown.
+9. After running the media processor, write a markdown report that embeds at least one processed image and one processed video using relative paths under ./media.
+
+Use this exact JSON shape:
+{
+  "scenarioId": "interaction-architecture-create-task",
+  "type": "interaction",
+  "title": "short title",
+  "status": "passed|warning|failed",
+  "summary": "1-2 sentence summary",
+  "generatedAt": "ISO-8601",
+  "fixture": {
+    "label": "$repo_label",
+    "repoUrl": "$repo_url"
+  },
+  "project": {
+    "root": "absolute path",
+    "module": "module name or path",
+    "packageName": "android package if discovered"
+  },
+  "commands": [
+    {
+      "label": "short label",
+      "command": "exact command",
+      "status": "passed|warning|failed",
+      "detail": "short outcome"
+    }
+  ],
+  "checks": [
+    {
+      "label": "short label",
+      "status": "passed|warning|failed",
+      "detail": "short evidence"
+    }
+  ],
+  "keyFindings": ["short bullet", "short bullet"]
+}
+
+Write Markdown with these sections in order:
+- # Title
+- ## Summary
+- ## Scenario steps
+- ## Captured proof
+- ## Commands
+- ## Checks
+- ## Findings
+
+Embed the processed media with relative links like ./media/example.webp and a HTML <video> block that points at ./media/example.mp4.
 EOF
       ;;
-    modernization)
-      cat <<'EOF'
-Work read-only.
+    interaction-termux-create-named-session)
+      cat <<EOF
+Run a manual on-device Android interaction scenario using the android-development skill.
 
-Allowed actions: inspect a few Gradle files and wrapper metadata only.
-Never edit files, install packages, or run project tasks.
+Repository root: $repo_dir
+Repository label: $repo_label
+Repository URL: $repo_url
+Module hint: $module_hint
 
-Decide whether this repository should trigger modernization guidance.
-Constraints:
-- Inspect only the wrapper properties, the top-level `settings.gradle*`, the top-level build file, and at most one module build file if needed.
-- Stop after 4 concrete legacy findings.
-- Do not scan source trees or README files unless a Gradle file points you there.
-List the concrete legacy signals you found and finish with the first safe next step. Keep the answer under 14 lines.
+Required outputs:
+- Write JSON to $result_json
+- Write Markdown to $report_md
+- Save raw screenshots and recordings in $raw_dir
+- After capturing media, run: node $media_processor "$scenario_dir"
+
+This scenario was selected after repository exploration because Termux has a visually meaningful drawer-driven session workflow that can be verified with adb input and screenshots.
+
+Task:
+1. Find the real Android project root and build a debuggable app if needed.
+2. Clear app data, install the app, and launch it.
+3. Wait for first-run bootstrap to complete and confirm the terminal session is usable before continuing.
+4. Execute this manual visual flow using adb input and bounded hierarchy inspection when needed:
+   - open the drawer,
+   - long-press the New session control,
+   - create a named session with a short stable name,
+  - verify the drawer list now shows the new named session and that the selected row state changed.
+5. Capture at least three screenshots: first shell ready, create-session dialog, and drawer with the new named session.
+6. Capture one short recording that shows the drawer interaction and resulting session list change.
+7. Keep hierarchy and logcat capture bounded and only use them to ground brittle interactions; do not rely on terminal transcript text as the main assertion.
+8. Do not use broad or destructive actions such as wiping the emulator.
+9. After running the media processor, write a markdown report that embeds at least one processed image and one processed video using relative paths under ./media.
+
+Use this exact JSON shape:
+{
+  "scenarioId": "interaction-termux-create-named-session",
+  "type": "interaction",
+  "title": "short title",
+  "status": "passed|warning|failed",
+  "summary": "1-2 sentence summary",
+  "generatedAt": "ISO-8601",
+  "fixture": {
+    "label": "$repo_label",
+    "repoUrl": "$repo_url"
+  },
+  "project": {
+    "root": "absolute path",
+    "module": "module name or path",
+    "packageName": "android package if discovered"
+  },
+  "commands": [
+    {
+      "label": "short label",
+      "command": "exact command",
+      "status": "passed|warning|failed",
+      "detail": "short outcome"
+    }
+  ],
+  "checks": [
+    {
+      "label": "short label",
+      "status": "passed|warning|failed",
+      "detail": "short evidence"
+    }
+  ],
+  "keyFindings": ["short bullet", "short bullet"]
+}
+
+Write Markdown with these sections in order:
+- # Title
+- ## Summary
+- ## Scenario steps
+- ## Captured proof
+- ## Commands
+- ## Checks
+- ## Findings
+
+Embed the processed media with relative links like ./media/example.webp and a HTML <video> block that points at ./media/example.mp4.
 EOF
       ;;
-    ui-triage)
-      cat <<'EOF'
-Work read-only.
+    interaction-aegis-first-run)
+      cat <<EOF
+Run a manual on-device Android interaction scenario using the android-development skill.
 
-Allowed actions: answer from repository structure and Android workflow knowledge only.
-Never edit files, install packages, or run the app.
+Repository root: $repo_dir
+Repository label: $repo_label
+Repository URL: $repo_url
+Module hint: $module_hint
 
-Describe the smallest on-device UI triage plan for this repository that minimizes token use. Make screenshot-first the default, explain when hierarchy XML is actually needed, and state how to avoid dumping full XML or unbounded logcat into context. Keep the answer under 12 lines.
+Required outputs:
+- Write JSON to $result_json
+- Write Markdown to $report_md
+- Save raw screenshots and recordings in $raw_dir
+- After capturing media, run: node $media_processor "$scenario_dir"
+
+This scenario was selected after repository exploration because Aegis has a deterministic first-run secure setup flow that produces strong visual state changes without camera or import dependencies.
+
+Task:
+1. Find the real Android project root and build a debuggable app if needed. Prefer a debug build because release screen-security behavior can block screenshots and recordings.
+2. Clear app data, install the app, and launch it.
+3. Execute this manual visual flow using adb input and bounded hierarchy inspection when needed:
+   - progress through the intro screens,
+  - explicitly choose password-based setup even if it appears preselected,
+   - enter a stable test password and confirmation,
+  - allow for the setup-complete transition to take a moment after password submission,
+   - complete setup,
+   - verify the app reaches the empty vault screen.
+4. Capture at least three screenshots: intro/setup start, password entry, and empty vault after completion.
+5. Capture one short recording that shows the end-to-end setup transition.
+6. Keep hierarchy and logcat capture bounded and only use them to ground ambiguous taps or text fields.
+7. Do not rely on camera, file picker, or external import flows.
+8. After running the media processor, write a markdown report that embeds at least one processed image and one processed video using relative paths under ./media.
+
+Use this exact JSON shape:
+{
+  "scenarioId": "interaction-aegis-first-run",
+  "type": "interaction",
+  "title": "short title",
+  "status": "passed|warning|failed",
+  "summary": "1-2 sentence summary",
+  "generatedAt": "ISO-8601",
+  "fixture": {
+    "label": "$repo_label",
+    "repoUrl": "$repo_url"
+  },
+  "project": {
+    "root": "absolute path",
+    "module": "module name or path",
+    "packageName": "android package if discovered"
+  },
+  "commands": [
+    {
+      "label": "short label",
+      "command": "exact command",
+      "status": "passed|warning|failed",
+      "detail": "short outcome"
+    }
+  ],
+  "checks": [
+    {
+      "label": "short label",
+      "status": "passed|warning|failed",
+      "detail": "short evidence"
+    }
+  ],
+  "keyFindings": ["short bullet", "short bullet"]
+}
+
+Write Markdown with these sections in order:
+- # Title
+- ## Summary
+- ## Scenario steps
+- ## Captured proof
+- ## Commands
+- ## Checks
+- ## Findings
+
+Embed the processed media with relative links like ./media/example.webp and a HTML <video> block that points at ./media/example.mp4.
+EOF
+      ;;
+    modernization-cleanarchitecture)
+      cat <<EOF
+Run a modernization triage scenario using the android-development skill.
+
+Repository root: $repo_dir
+Repository label: $repo_label
+Repository URL: $repo_url
+Module hint: $module_hint
+
+Required outputs:
+- Write JSON to $result_json
+- Write Markdown to $report_md
+
+Task:
+1. Find the real Android project root.
+2. Ground the environment with the smallest useful wrapper command such as ./gradlew --version or ./gradlew help.
+3. Inspect only the Gradle and Android build files you need to identify the most concrete modernization signals.
+4. Do not edit files and do not recommend blind version bumps.
+5. Finish with the first safe modernization step.
+
+Use this exact JSON shape:
+{
+  "scenarioId": "modernization-cleanarchitecture",
+  "type": "modernization",
+  "title": "short title",
+  "status": "passed|warning|failed",
+  "summary": "1-2 sentence summary",
+  "generatedAt": "ISO-8601",
+  "fixture": {
+    "label": "$repo_label",
+    "repoUrl": "$repo_url"
+  },
+  "project": {
+    "root": "absolute path",
+    "module": "module name or path"
+  },
+  "commands": [
+    {
+      "label": "short label",
+      "command": "exact command",
+      "status": "passed|warning|failed",
+      "detail": "short outcome"
+    }
+  ],
+  "checks": [
+    {
+      "label": "short label",
+      "status": "passed|warning|failed",
+      "detail": "short evidence"
+    }
+  ],
+  "keyFindings": ["short bullet", "short bullet"]
+}
+
+Write Markdown with these sections in order:
+- # Title
+- ## Summary
+- ## Signals
+- ## Commands
+- ## Findings
+- ## First safe next step
 EOF
       ;;
     *)
-      echo "Unknown scenario: $scenario" >&2
+      echo "Unknown scenario: $scenario_id" >&2
       return 1
       ;;
   esac
 }
 
-extract_metric() {
-  local pattern="$1"
-  local file="$2"
-  sed -n -E "s/$pattern/\\1/p" "$file" | tail -n 1
-}
-
-append_summary() {
-  local repo_label="$1"
-  local scenario="$2"
-  local exit_code="$3"
-  local log_file="$4"
-  local total_usage api_time session_time model_line in_tokens out_tokens cached_tokens premium_requests
-
-  total_usage="$(extract_metric '^Total usage est:[[:space:]]+(.+)$' "$log_file")"
-  api_time="$(extract_metric '^API time spent:[[:space:]]+(.+)$' "$log_file")"
-  session_time="$(extract_metric '^Total session time:[[:space:]]+(.+)$' "$log_file")"
-  model_line="$(awk '/^Breakdown by AI model:/{getline; sub(/^[[:space:]]+/, "", $0); print; exit}' "$log_file")"
-
-  in_tokens=""
-  out_tokens=""
-  cached_tokens=""
-  premium_requests=""
-
-  if [ -n "$model_line" ]; then
-    in_tokens="$(printf '%s\n' "$model_line" | sed -E 's/^[^[:space:]]+[[:space:]]+([^[:space:]]+)[[:space:]]+in,.*/\1/')"
-    out_tokens="$(printf '%s\n' "$model_line" | sed -E 's/.*,[[:space:]]+([^[:space:]]+)[[:space:]]+out,.*/\1/')"
-    cached_tokens="$(printf '%s\n' "$model_line" | sed -E 's/.*,[[:space:]]+([^[:space:]]+)[[:space:]]+cached.*/\1/')"
-    premium_requests="$(printf '%s\n' "$model_line" | sed -E 's/.*\((Est\.[^)]+)\).*/\1/')"
-  fi
-
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$repo_label" \
-    "$scenario" \
-    "$exit_code" \
-    "$total_usage" \
-    "$api_time" \
-    "$session_time" \
-    "$in_tokens" \
-    "$out_tokens" \
-    "$cached_tokens" \
-    "$premium_requests" \
-    "$log_file" >> "$SUMMARY_TSV"
-}
-
 run_case() {
-  local repo_label="$1"
-  local scenario="$2"
+  local scenario_id="$1"
+  local repo_label="$2"
+  local repo_url="$3"
+  local branch="$4"
+  local ref="$5"
+  local module_hint="$6"
   local repo_dir="$REPOS_DIR/$repo_label"
-  local prompt_file="$PROMPT_DIR/${repo_label}__${scenario}.txt"
-  local log_file="$LOG_DIR/${repo_label}__${scenario}.log"
-  local status_file="$RESULT_DIR/${repo_label}__${scenario}.status"
-  local exit_code
+  local scenario_dir="$SCENARIOS_DIR/$scenario_id"
+  local raw_dir="$scenario_dir/raw"
+  local prompt_file="$PROMPTS_DIR/${scenario_id}.txt"
+  local result_json="$scenario_dir/result.json"
+  local report_md="$scenario_dir/report.md"
+  local cli_log="$LOG_DIR/${scenario_id}.log"
+  local cli_exit="0"
+  local result_status="missing"
 
-  {
-    printf 'Use the android-development skill at %s. If the skill is not installed, read %s directly and use progressive disclosure across the references directory.\n' "$SKILL_DIR" "$SKILL_DIR/SKILL.md"
-    printf 'Use only read-only operations: bounded shell inspection, targeted file reads, and cheap wrapper help commands when explicitly allowed. Do not edit files, install packages, or write new artifacts.\n\n'
-    printf 'Repository root: %s\n\n' "$repo_dir"
-    scenario_prompt "$scenario"
-  } > "$prompt_file"
+  clone_repo "$repo_label" "$repo_url" "$branch" "$ref"
+  mkdir -p "$scenario_dir" "$raw_dir"
 
-  printf 'Starting %s/%s\n' "$repo_label" "$scenario"
-  printf 'Log file: %s\n' "$log_file"
+  scenario_prompt "$scenario_id" "$repo_dir" "$repo_label" "$repo_url" "$module_hint" "$result_json" "$report_md" "$raw_dir" "$REPO_DIR/scripts/process-android-scenario-artifacts.mjs" > "$prompt_file"
 
   if (
     cd "$repo_dir"
@@ -222,29 +493,35 @@ run_case() {
       --no-ask-user \
       --add-dir "$SKILL_DIR" \
       --add-dir "$repo_dir" \
+      --add-dir "$scenario_dir" \
       --log-dir "$COPILOT_LOG_DIR" \
-      -p "$(cat "$prompt_file")" > "$log_file" 2>&1
+      -p "Use the android-development skill at $SKILL_DIR. If it is not installed, read $SKILL_DIR/SKILL.md directly and use progressive disclosure across the references directory. Work in the repository below and write the required result files to the absolute paths provided. Do not ask the user for input.\n\n$(cat "$prompt_file")" > "$cli_log" 2>&1
   ); then
-    exit_code=0
+    cli_exit="0"
   else
-    exit_code=$?
+    cli_exit="$?"
   fi
 
-  printf '%s\n' "$exit_code" > "$status_file"
-  append_summary "$repo_label" "$scenario" "$exit_code" "$log_file"
+  if [ -f "$result_json" ]; then
+    result_status="$(json_status "$result_json" || printf 'missing')"
+  fi
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$scenario_id" \
+    "$repo_label" \
+    "$cli_exit" \
+    "$result_status" \
+    "$result_json" \
+    "$report_md" >> "$SUMMARY_TSV"
+
+  if [ "$cli_exit" != "0" ] || [ ! -f "$result_json" ] || [ ! -f "$report_md" ]; then
+    return 1
+  fi
+
+  return 0
 }
 
-wait_for_slot() {
-  while [ "$(jobs -rp | wc -l | tr -d ' ')" -ge "$JOBS" ]; do
-    sleep 1
-  done
-}
-
-printf 'run_root\t%s\n' "$RUN_ROOT"
-printf 'summary\t%s\n' "$SUMMARY_TSV"
-printf 'skill_package\t%s\n' "$SKILL_LIST_FILE"
-
-printf 'repo\tscenario\texit_code\ttotal_usage\tapi_time\tsession_time\tin_tokens\tout_tokens\tcached_tokens\tpremium_requests\tlog_file\n' > "$SUMMARY_TSV"
+printf 'scenario\trepo\tcli_exit\tresult_status\tresult_json\treport_md\n' > "$SUMMARY_TSV"
 
 if command -v npx >/dev/null 2>&1; then
   npx -y skills add "$SKILL_DIR" --list > "$SKILL_LIST_FILE" 2>&1 || true
@@ -255,33 +532,30 @@ else
   printf 'npx not available; skipped skills package validation\n' > "$SKILL_LIST_FILE"
 fi
 
-clone_repo termux https://github.com/termux/termux-app.git master
-clone_repo aegis https://github.com/beemdevelopment/Aegis.git master
-clone_repo cleanarchitecture https://github.com/android10/Android-CleanArchitecture.git master
-clone_repo pockethub https://github.com/pockethub/PocketHub.git master
+failures=0
 
-repos=(termux aegis cleanarchitecture pockethub)
-scenarios=(discovery tasks modernization ui-triage)
+run_case toolchain-architecture-samples architecture-samples https://github.com/android/architecture-samples.git main ee66e1526b84c026615df032c705842b7d2a521f app || failures=$((failures + 1))
+run_case interaction-architecture-create-task architecture-samples https://github.com/android/architecture-samples.git main ee66e1526b84c026615df032c705842b7d2a521f app || failures=$((failures + 1))
+run_case interaction-termux-create-named-session termux-app https://github.com/termux/termux-app.git master '' app || failures=$((failures + 1))
+run_case interaction-aegis-first-run Aegis https://github.com/beemdevelopment/Aegis.git master '' app || failures=$((failures + 1))
+run_case modernization-cleanarchitecture cleanarchitecture https://github.com/android10/Android-CleanArchitecture.git master '' app || failures=$((failures + 1))
 
-pids=()
-
-for repo_label in "${repos[@]}"; do
-  repo_selected "$repo_label" || continue
-  for scenario in "${scenarios[@]}"; do
-    scenario_selected "$scenario" || continue
-    wait_for_slot
-    run_case "$repo_label" "$scenario" &
-    pids+=("$!")
-  done
-done
-
-for pid in "${pids[@]}"; do
-  wait "$pid"
-done
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    printf '# Android Development Scenario Runs\n\n'
+    printf '| Scenario | Repo | Copilot CLI | Result JSON | Markdown |\n'
+    printf '| --- | --- | --- | --- | --- |\n'
+    awk -F '\t' 'NR > 1 { printf("| %s | %s | %s | %s | %s |\\n", $1, $2, $3, $4, $6) }' "$SUMMARY_TSV"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 
 printf '\nSummary:\n'
 if command -v column >/dev/null 2>&1; then
   column -t -s $'\t' "$SUMMARY_TSV"
 else
   cat "$SUMMARY_TSV"
+fi
+
+if [ "$failures" -gt 0 ] && [ "$FAIL_ON_SCENARIO_ERROR" = "1" ]; then
+  exit 1
 fi

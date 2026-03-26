@@ -1,4 +1,4 @@
-name: Android Development Smoke
+name: Android Development Scenarios
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
@@ -37,16 +37,14 @@ jobs:
     needs: preflight
     if: ${{ needs.preflight.outputs.has_token == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 90
     env:
       GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
       MODEL: gpt-5.4-mini
       INSTALL_SKILL: '1'
-      REPOS: termux,cleanarchitecture
-      SCENARIOS: discovery,tasks,modernization,ui-triage
-      JOBS: '2'
-      RUN_ROOT: /tmp/android-development-smoke/run-${{ github.run_id }}-${{ github.run_attempt }}
-      TIMEOUT_SECONDS: '240'
+      FAIL_ON_SCENARIO_ERROR: '0'
+      RUN_ROOT: /tmp/android-development-scenarios/run-${{ github.run_id }}-${{ github.run_attempt }}
+      TIMEOUT_SECONDS: '1500'
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -106,14 +104,7 @@ jobs:
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
 
-      - name: Run read-only smoke matrix
-        run: ./validation/android-development/smoke.sh
-
-      - name: Acquire read-only site showcase data
-        if: ${{ !cancelled() }}
-        run: ./validation/android-development/site-showcase.sh
-
-      - name: Run emulator-backed evidence capture
+      - name: Run scenario-based Android validation
         if: ${{ !cancelled() }}
         uses: ReactiveCircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a
         with:
@@ -124,41 +115,22 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: bash ./validation/android-development/tooling-smoke.sh
-
-      - name: Process tooling artifacts for the site bundle
-        if: ${{ !cancelled() }}
-        run: |
-          if [ -f "$RUN_ROOT/tooling/metadata.env" ]; then
-            node ./scripts/process-android-tooling-artifacts.mjs "$RUN_ROOT"
-          else
-            echo "No tooling metadata present; skipping media processing."
-          fi
-
-      - name: Render smoke report
-        if: ${{ !cancelled() }}
-        run: node ./scripts/render-android-smoke-report.mjs "$RUN_ROOT"
+          script: bash ./validation/android-development/smoke.sh
 
       - name: Build Pages site bundle
         if: ${{ !cancelled() }}
-        run: |
-          node ./scripts/build-pages-site.mjs \
-            "$RUN_ROOT/site-dist" \
-            "$RUN_ROOT" \
-            "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/latest.json"
+        run: node ./scripts/build-pages-site.mjs "$RUN_ROOT/site-dist" "$RUN_ROOT"
 
-      - name: Upload smoke summary
+      - name: Upload scenario summary
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
-          name: android-development-smoke
+          name: android-development-scenarios
           path: |
             ${{ env.RUN_ROOT }}/summary.tsv
             ${{ env.RUN_ROOT }}/skill-package.txt
             ${{ env.RUN_ROOT }}/logs/*.log
-            ${{ env.RUN_ROOT }}/showcase/**
-            ${{ env.RUN_ROOT }}/tooling/**
-            ${{ env.RUN_ROOT }}/report/**
+            ${{ env.RUN_ROOT }}/scenarios/**
             ${{ env.RUN_ROOT }}/site-dist/**
 
       - name: Upload Pages artifact
