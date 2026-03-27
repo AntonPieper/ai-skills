@@ -21,6 +21,16 @@ from pathlib import Path
 from typing import NoReturn
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+PLACEHOLDER_RE = re.compile(r"(?<!\$)\$(?:\{[A-Za-z_][A-Za-z0-9_]*\}|[A-Za-z_][A-Za-z0-9_]*)")
+SIMULATION_MARKERS = (
+    "simulated",
+    "placeholder media",
+    "placeholder screenshot",
+    "placeholder video",
+    "assumed ready for simulation",
+    "device not available so",
+    "device unavailable so",
+)
 
 
 def utc_now() -> str:
@@ -165,6 +175,13 @@ class Config:
     original_stdout_is_tty: bool
     color_enabled: bool
     copilot_bin: str
+
+
+@dataclass(frozen=True)
+class ScenarioArtifacts:
+    result_status: str
+    valid: bool
+    detail: str = ""
 
 
 def make_config() -> Config:
@@ -505,6 +522,87 @@ def json_status(path: Path) -> str:
     return str(data.get("status", "missing"))
 
 
+def iter_text_values(value: object):
+    if isinstance(value, str):
+        yield value
+        return
+
+    if isinstance(value, dict):
+        for nested in value.values():
+            yield from iter_text_values(nested)
+        return
+
+    if isinstance(value, list):
+        for nested in value:
+            yield from iter_text_values(nested)
+
+
+def validate_report_quality(data: dict, report_text: str) -> str | None:
+    texts = [report_text, *iter_text_values(data)]
+
+    placeholders = sorted(
+        {
+            match.group(0)
+            for text in texts
+            for match in PLACEHOLDER_RE.finditer(text)
+        }
+    )
+    if placeholders:
+        sample = ", ".join(placeholders[:3])
+        return f"unresolved placeholders present: {sample}"
+
+    combined = "\n".join(text.lower() for text in texts)
+    for marker in SIMULATION_MARKERS:
+        if marker in combined:
+            return f"simulated or placeholder evidence present: {marker}"
+
+    return None
+
+
+def validate_scenario_artifacts(
+    scenario: Scenario, result_json: Path, report_md: Path
+) -> ScenarioArtifacts:
+    if not result_json.exists():
+        return ScenarioArtifacts("missing", False, "result.json missing")
+
+    try:
+        data = json.loads(result_json.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return ScenarioArtifacts("missing", False, f"result.json invalid JSON: {exc}")
+
+    if not isinstance(data, dict):
+        return ScenarioArtifacts("missing", False, "result.json must be a top-level object")
+
+    scenario_id = str(data.get("scenarioId", "")).strip()
+    if scenario_id != scenario.scenario_id:
+        return ScenarioArtifacts(
+            "missing",
+            False,
+            f"result.json scenarioId mismatch: expected {scenario.scenario_id}, got {scenario_id or 'missing'}",
+        )
+
+    status = str(data.get("status", "")).strip().lower()
+    if status not in {"passed", "warning", "failed"}:
+        return ScenarioArtifacts(
+            "missing",
+            False,
+            f"result.json status must be passed, warning, or failed (got {status or 'missing'})",
+        )
+
+    if not report_md.exists():
+        return ScenarioArtifacts(status, False, "report.md missing")
+
+    report_text = report_md.read_text(encoding="utf-8")
+    if not report_text.strip():
+        return ScenarioArtifacts(status, False, "report.md empty")
+
+    quality_error = validate_report_quality(data, report_text)
+    if quality_error:
+        return ScenarioArtifacts(status, False, quality_error)
+
+    return ScenarioArtifacts(status, True)
+
+
 def validate_skill_package(cfg: Config) -> str | None:
     npx = shutil.which("npx")
     if not npx:
@@ -516,12 +614,17 @@ def validate_skill_package(cfg: Config) -> str | None:
         return None
 
     with cfg.skill_list_file.open("w", encoding="utf-8") as f:
-        subprocess.run(
+        proc = subprocess.run(
             [npx, "-y", "skills", "add", str(cfg.repo_root), "--list"],
             cwd=str(cfg.repo_root),
             stdout=f,
             stderr=subprocess.STDOUT,
             check=False,
+        )
+
+    if proc.returncode != 0:
+        die(
+            f"Skill package listing failed with exit code {proc.returncode}; see {cfg.skill_list_file}"
         )
 
     return npx
@@ -623,7 +726,9 @@ def run_case(cfg: Config, scenario: Scenario, npx: str | None) -> bool:
             f"Use the android-development skill at {cfg.skill_dir}. "
             f"If it is not installed, read {cfg.skill_dir / 'SKILL.md'} directly and use progressive disclosure "
             f"across the references directory. Work in the repository below and write the required result files "
-            f"to the absolute paths provided. Do not ask the user for input.\n\n"
+            f"to the absolute paths provided. Do not ask the user for input. "
+            f"The result.json file must be strict valid JSON that Python's json parser can read, so escape backslashes inside command strings. "
+            f"After result.json and report.md are both written, stop immediately and do not continue exploring, narrating, or running background commands.\n\n"
             f"{prompt_body}"
         )
 
@@ -636,12 +741,8 @@ def run_case(cfg: Config, scenario: Scenario, npx: str | None) -> bool:
         )
         duration_s = str(int(time.monotonic() - started))
 
-        result_status = "missing"
-        if result_json.exists():
-            try:
-                result_status = json_status(result_json)
-            except Exception:
-                result_status = "missing"
+        artifacts = validate_scenario_artifacts(scenario, result_json, report_md)
+        result_status = artifacts.result_status
 
         append_summary(
             cfg,
@@ -657,14 +758,15 @@ def run_case(cfg: Config, scenario: Scenario, npx: str | None) -> bool:
             ],
         )
 
-        ok = cli_exit == 0 and result_json.exists() and report_md.exists()
+        ok = cli_exit == 0 and artifacts.valid and result_status != "failed"
         if ok:
             msg = f"Scenario complete: {scenario.scenario_id} (status={result_status}, duration={duration_s}s)"
             log_both(cfg, msg)
             gha_notice(msg)
             return True
 
-        msg = f"Scenario failed or incomplete: {scenario.scenario_id} (cli_exit={cli_exit}, status={result_status}, duration={duration_s}s)"
+        detail = f", detail={artifacts.detail}" if artifacts.detail else ""
+        msg = f"Scenario failed or incomplete: {scenario.scenario_id} (cli_exit={cli_exit}, status={result_status}, duration={duration_s}s{detail})"
         warn(msg)
         append_run_log(cfg, f"WARN: {msg}")
         gha_warning(msg)
