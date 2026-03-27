@@ -258,6 +258,10 @@ if (runRoot && (await exists(path.join(runRoot, 'skill-package.txt')))) {
 // Load scenarios
 const localScenarios = await loadLocalScenarios(runRoot);
 const published = localScenarios.length === 0 ? await loadPublishedScenarios(liveDataUrl) : null;
+if (localScenarios.length === 0 && liveDataUrl && published === null) {
+  console.error(`Failed to fetch published scenario data from ${liveDataUrl}`);
+  process.exit(1);
+}
 const scenarios = localScenarios.length > 0 ? localScenarios : (published?.scenarios || []);
 
 const payload = {
