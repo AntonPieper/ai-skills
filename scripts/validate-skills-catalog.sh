@@ -50,7 +50,7 @@ extract_skill_description() {
 skill_files=()
 while IFS= read -r skill_file; do
   skill_files+=("$skill_file")
-done < <(find "$REPO_DIR" -type f -name SKILL.md -not -path '*/.git/*' | sort)
+done < <(find "$REPO_DIR/skills" -type f -name SKILL.md -not -path '*/.git/*' | sort)
 
 if [ "${#skill_files[@]}" -eq 0 ]; then
   echo "No skills found." >&2
