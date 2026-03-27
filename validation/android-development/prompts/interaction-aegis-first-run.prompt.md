@@ -28,6 +28,8 @@ Task:
 6. Keep hierarchy and logcat capture bounded and only use them to ground ambiguous taps or text fields.
 7. Do not rely on camera, file picker, or external import flows.
 8. After running the media processor, write a markdown report that embeds at least one processed image and one processed video using relative paths under ./media.
+10. Do not simulate device behavior, placeholder media, or assumed success. If the flow cannot be completed, record the exact blocking command or check and mark it warning or failed.
+11. Do not leave unresolved placeholders such as $status, $SERIAL, $APK, or ${...} anywhere in JSON or Markdown.
 
 Use this exact JSON shape:
 {

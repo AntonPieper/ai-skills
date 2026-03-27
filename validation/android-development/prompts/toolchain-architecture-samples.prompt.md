@@ -18,6 +18,8 @@ Task:
 4. If an emulator is running and the build succeeded, install the app and capture at least one screenshot showing the app launched.
 5. Do not edit the repository under test.
 6. Summarize what succeeded, what was skipped, and the exact commands that grounded the result.
+7. Do not simulate device evidence or placeholder media. If a command or screenshot cannot be completed, record the exact blocking evidence and mark it warning or failed.
+8. Do not leave unresolved placeholders such as $status, $SERIAL, $APK, or ${...} anywhere in JSON or Markdown.
 
 Write JSON with this exact top-level shape:
 {

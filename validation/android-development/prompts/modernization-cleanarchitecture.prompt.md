@@ -19,6 +19,8 @@ Task:
 5. If an emulator is running and the build succeeds, install the app and capture at least one screenshot showing the app launched.
 6. Do not edit files and do not recommend blind version bumps.
 7. Identify the first safe modernization step based on what you observed.
+8. Do not simulate device evidence or placeholder media. If a command or screenshot cannot be completed, record the exact blocking evidence and mark it warning or failed.
+9. Do not leave unresolved placeholders such as $status, $SERIAL, $APK, or ${...} anywhere in JSON or Markdown.
 
 Use this exact JSON shape:
 {
