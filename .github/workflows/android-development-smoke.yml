@@ -5,6 +5,15 @@ env:
 
 on:
   workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model to use for the smoke test'
+        required: false
+        default: 'gpt-5-mini'
+      fail_on_scenario_error:
+        description: 'Whether to fail the job if any scenario returns an error status. Set to false to allow all scenarios to run and report their individual statuses even if some fail.'
+        required: false
+        default: '1'
 
 permissions:
   contents: read
